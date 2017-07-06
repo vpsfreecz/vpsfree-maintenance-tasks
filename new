@@ -1,8 +1,34 @@
 #!/bin/sh
 
-if [ "$1" == "" ] ; then
+NAME="$1"
+TYPE="$2"
+
+if [ "$NAME" == "" ] ; then
     echo "Usage: $0 <name>"
     exit 1
 fi
 
-mkdir "$(date +%Y-%m-%d)-$1"
+TASK="$(date +%Y-%m-%d)-$1"
+
+mkdir "$TASK"
+
+if [ "$TYPE" != "" ] ; then
+    TPL=""
+
+    case "$TYPE" in
+        d|daemon|vpsadmind)
+            TPL="vpsadmind.rb"
+            ;;
+
+        api|vpsadmin-api)
+            TPL="vpsadmin-api.rb"
+            ;;
+
+        *)
+            echo "Unknown template '$TYPE'"
+            exit 1
+            ;;
+    esac
+
+    cp -p templates/"$TPL" "$TASK"/"$NAME".${TPL##*.}
+fi
