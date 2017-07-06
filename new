@@ -30,5 +30,5 @@ if [ "$TYPE" != "" ] ; then
             ;;
     esac
 
-    cp -p templates/"$TPL" "$TASK"/"$NAME".${TPL##*.}
+    cp -p templates/"$TPL" "$TASK"/"${NAME//-/_}".${TPL##*.}
 fi
