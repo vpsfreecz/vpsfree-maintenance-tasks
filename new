@@ -1,2 +1,8 @@
 #!/bin/sh
+
+if [ "$1" == "" ] ; then
+    echo "Usage: $0 <name>"
+    exit 1
+fi
+
 mkdir "$(date +%Y-%m-%d)-$1"
