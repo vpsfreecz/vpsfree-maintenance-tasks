@@ -85,6 +85,7 @@ module TransactionChains
       def link_chain(vps)
         puts "VPS #{vps.id}"
         concerns(:affect, [vps.class.name, vps.id])
+        lock(vps)
 
         mail_custom(
             from: 'podpora@vpsfree.cz',
