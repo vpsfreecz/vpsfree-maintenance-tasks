@@ -43,6 +43,8 @@ v nejbližším možném termínu:
 - <%= days[w.weekday] %> od <%= sprintf('%02d:%02d', w.opens_at / 60, w.opens_at % 60) %> do <%= sprintf('%02d:%02d', w.closes_at / 60, w.closes_at % 60) %>
 <% end -%>
 
+Žádná akce z Tvé strany není potřeba.
+
 S pozdravem
 
 vpsAdmin @ vpsFree.cz
@@ -65,6 +67,8 @@ will occur in the closest outage window:
 <% @vps.vps_outage_windows.where(is_open: true).order('weekday').each do |w| -%>
 - <%= days[w.weekday] %> od <%= sprintf('%02d:%02d', w.opens_at / 60, w.opens_at % 60) %> do <%= sprintf('%02d:%02d', w.closes_at / 60, w.closes_at % 60) %>
 <% end -%>
+
+No action from you is required.
 
 Best regards,
 
