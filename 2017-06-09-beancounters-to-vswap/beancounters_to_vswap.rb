@@ -8,7 +8,7 @@
 
 ### CONFIGURABLES
 BASE_PRIVVM_CFG = 1
-BASE_VSWAP_CFG = 37
+BASE_VSWAP_CFG = 27
 TR = {
     'privvmpages-4g-6g' => 4*1024,
     'privvmpages-6g-6g' => 6*1024,
