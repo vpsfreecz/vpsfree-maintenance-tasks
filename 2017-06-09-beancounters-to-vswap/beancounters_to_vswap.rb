@@ -129,7 +129,7 @@ module TransactionChains
         end
 
         use_chain(Vps::SetResources, args: [vps, resources])
-        use_chain(Vps::Start, args: [vps])
+        use_chain(Vps::Start, args: [vps]) if vps.is_running?
       end
     end
   end
