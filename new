@@ -4,7 +4,7 @@ NAME="$1"
 TYPE="$2"
 
 if [ "$NAME" == "" ] ; then
-    echo "Usage: $0 <name>"
+    echo "Usage: $0 <name> [vpsadmind | api]"
     exit 1
 fi
 
