@@ -4,5 +4,5 @@
 # Usage:
 #
 
-Dir.chdir('/opt/vpsadmin-api')
-require '/opt/vpsadmin-api/lib/vpsadmin'
+Dir.chdir('/opt/vpsadmin/api')
+require '/opt/vpsadmin/api/lib/vpsadmin'
