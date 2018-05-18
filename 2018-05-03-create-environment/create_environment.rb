@@ -64,5 +64,34 @@ ActiveRecord::Base.transaction do
     end
   end
 
+  # Configure default resources for new users and VPS
+  resources.each do |r|
+    DefaultObjectClusterResource.create!(
+      environment: env,
+      cluster_resource: r,
+      class_name: 'User',
+      value: assign[ r.name.to_sym ],
+    )
+  end
+
+  resources.each do |r|
+    if %w(ipv4 ipv6).include?(r.name)
+      v = 1 # Allocate 1 public IPv4/6 to new VPS
+
+    elsif r.name == 'ipv4_private'
+      v = 0 # No private IP
+
+    else
+      v = assign[ r.name.to_sym ]
+    end
+
+    DefaultObjectClusterResource.create!(
+      environment: env,
+      cluster_resource: r,
+      class_name: 'Vps',
+      value: v,
+    )
+  end
+
   fail 'comment this line'
 end
