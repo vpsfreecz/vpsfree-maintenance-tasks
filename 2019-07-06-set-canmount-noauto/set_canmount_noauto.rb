@@ -21,12 +21,23 @@ db.prepared(
   ORDER BY p.filesystem, ds.full_name',
   $CFG.get(:vpsadmin, :node_id)
 ).each do |row|
+  datasets = []
+
   ds = File.join(row['filesystem'], row['full_name'])
-  ds = File.join(ds, "tree.#{row['tree_index']}") if row['tree_index']
-  if row['branch_name']
-    ds = File.join(ds, "branch-#{row['branch_name']}.#{row['branch_index']}")
+  datasets << ds
+
+  if row['tree_index']
+    tree = File.join(ds, "tree.#{row['tree_index']}")
+    datasets << tree
   end
 
-  rc = zfs(:set, 'canmount=noauto', ds, valid_rcs: [1])
-  log("unable to set #{ds}") if rc.exitstatus != 0
+  if row['branch_name']
+    branch = File.join(tree, "branch-#{row['branch_name']}.#{row['branch_index']}")
+    datasets << branch
+  end
+
+  datasets.each do |ds|
+    rc = zfs(:set, 'canmount=noauto', ds, valid_rcs: [1])
+    log("unable to set #{ds}") if rc.exitstatus != 0
+  end
 end
