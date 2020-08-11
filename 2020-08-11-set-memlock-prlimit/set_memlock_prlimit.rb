@@ -11,7 +11,7 @@ db.prepared("
   SELECT v.id
   FROM vpses v
   WHERE
-    AND v.object_state < 2
+    v.object_state < 2
     AND v.node_id = ?
 ", $CFG.get(:vpsadmin, :node_id)).each do |row|
   puts "VPS #{row['id']}"
