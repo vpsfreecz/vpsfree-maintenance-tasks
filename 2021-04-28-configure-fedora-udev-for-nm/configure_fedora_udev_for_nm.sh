@@ -20,9 +20,6 @@ ExecStart=
 ExecStart=-udevadm trigger --subsystem-match=net --action=add
 EOT
 
-cat <<EOT > /etc/udev/rules.d/86-vpsadminos.rules
-ENV{ID_NET_DRIVER}=="veth", ENV{NM_UNMANAGED}="0"
-EOT
 EOF
 
 for ctid in `ct ls -H -o id --distribution fedora` ; do
