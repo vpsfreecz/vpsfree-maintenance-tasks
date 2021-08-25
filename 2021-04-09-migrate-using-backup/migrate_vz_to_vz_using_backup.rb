@@ -90,6 +90,10 @@ module TransactionChains
       datasets.each do |pair|
         src, dst = pair
 
+        if src.snapshot_in_pools.count > 1
+          fail "#{src.dataset.full_name} has more than one local snapshot"
+        end
+
         # Find the last backup.. if we can't find the right thing, we fail
         hypervisor_sip = src.snapshot_in_pools.all.last
 
