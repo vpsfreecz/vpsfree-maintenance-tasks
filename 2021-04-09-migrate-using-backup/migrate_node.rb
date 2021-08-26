@@ -40,7 +40,9 @@ puts
 puts "continue? [y/N]"
 fail 'abort!' if STDIN.readline.strip.downcase != 'y'
 
-vpses.each_with_index do |vps, j|
+vpses.each_with_index do |vps, i|
+  j = i+1
+
   puts "[#{j}/#{vps_count}] ok so scheduling vps #{vps.id} to #{dst_node.domain_name}"
  
   okay = Kernel.system("ruby #{orig_pwd}/migrate_#{type}_using_backup.rb #{vps.id} #{dst_node.id}")
