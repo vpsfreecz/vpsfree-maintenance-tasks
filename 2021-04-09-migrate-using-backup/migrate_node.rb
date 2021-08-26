@@ -26,7 +26,10 @@ fail 'abort!' if STDIN.readline.strip.downcase != 'y'
 
 vpses = []
 
-::Vps.where(object_state: ::Vps.object_states[:active], node: src_node).each do |vps|
+::Vps.where(object_state: [
+  ::Vps.object_states[:active],
+  ::Vps.object_states[:suspended],
+], node: src_node).each do |vps|
   vpses << vps
 end
 
@@ -41,11 +44,9 @@ vpses.each_with_index do |vps, j|
   puts "[#{j}/#{vps_count}] ok so scheduling vps #{vps.id} to #{dst_node.domain_name}"
  
   okay = Kernel.system("ruby #{orig_pwd}/migrate_#{type}_using_backup.rb #{vps.id} #{dst_node.id}")
-  #okay = true
-  #sleep(3)
 
   if okay
-    puts "[#{j}/#{vps_count}] ok so vps #{vps.id} is there mate"
+    puts "[#{j}/#{vps_count}] ok so vps #{vps.id} is on the way"
   else
     puts "[#{j}/#{vps_count}] well vps #{vps.id} didn't make it"
   end
