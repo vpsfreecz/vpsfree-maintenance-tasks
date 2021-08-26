@@ -252,17 +252,17 @@ module TransactionChains
             t.edit(p, dataset_in_pool_id: dst.id)
           end
 
-          src.snapshot_in_pools.each do |sip|
-            t.edit(sip, dataset_in_pool_id: dst.id)
-          end
-
           ### Backup-specific step
           # The problem here is that the first snapshot, the one which
           # was sent from the backup, will be here twice... once created
-          # by Dataset::Send and once here... we should probably delete the one
-          # created by Dataset::Send
+          # by Dataset::Send and once moved from src below... we should probably
+          # delete the one created by Dataset::Send
           dst.snapshot_in_pools.each do |sip|
             t.destroy(sip)
+          end
+
+          src.snapshot_in_pools.each do |sip|
+            t.edit(sip, dataset_in_pool_id: dst.id)
           end
 
           migrate_dataset_plans(src, dst, t)
