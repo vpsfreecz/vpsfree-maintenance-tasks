@@ -1,8 +1,7 @@
-#!/usr/bin/env ruby
+#!/run/current-system/sw/bin/vpsadmin-api-ruby
 # <description>
 #
 # Usage:
 #
 
-Dir.chdir('/opt/vpsadmin/api')
-require '/opt/vpsadmin/api/lib/vpsadmin'
+require 'vpsadmin'
