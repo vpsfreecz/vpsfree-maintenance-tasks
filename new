@@ -16,12 +16,16 @@ if [ "$TYPE" != "" ] ; then
     TPL=""
 
     case "$TYPE" in
-        d|daemon|vpsadmind)
-            TPL="vpsadmind.rb"
-            ;;
-
         api|vpsadmin-api)
             TPL="vpsadmin-api.rb"
+            ;;
+
+        d|daemon|nodectld)
+            TPL="nodectld.rb"
+            ;;
+
+        vpsadmind)
+            TPL="vpsadmind.rb"
             ;;
 
         *)
