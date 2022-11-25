@@ -15,8 +15,8 @@ MAIL = {}
 MAIL[:cs] = <<END
 Ahoj <%= @user.login %>,
 
-<% prep = %i(v      v       v     ve     ve      v) -%>
-<% days = %i(neděli pondělí úterý středu čtvrtek pátek) -%>
+<% prep = %i(v      v       v     ve     ve      v     v) -%>
+<% days = %i(neděli pondělí úterý středu čtvrtek pátek sobotu) -%>
 VPS <%= @vps.id %> <%= @vps.hostname %> obsahuje vysoký počet zombie procesů
 (> 10 000) a z provozních důvodů jej budeme <%= prep[@finish_weekday] %> <%= days[@finish_weekday] %> <%= sprintf('%02d:%02d', @finish_minutes / 60, @finish_minutes % 60) %> restartovat.
 
