@@ -57,6 +57,7 @@ module TransactionChains
 
       def link_chain(vps_id, finish_weekday, finish_minutes)
         vps = ::Vps.find(vps_id)
+        concerns(:affect, [vps.class.name, vps.id])
 
         lang_code = vps.user.language.code.to_sym
         
