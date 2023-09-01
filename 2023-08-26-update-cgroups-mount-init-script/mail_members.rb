@@ -15,7 +15,7 @@ o připojení cgroups [1] při startu VPS.
 Původní init skript obsahoval pevně daný seznam cgroups, které se do /sys/fs/cgroup
 připojovaly. Protože může docházet ke změnám dostupných cgroups ze strany kernelu,
 rozhodli jsme se tento init skript upravit tak, aby si při spuštění sám zjistil,
-které cgroups má připojit. Díky tomu bychom se do buoducna měli vyhnout dalším
+které cgroups má připojit. Díky tomu bychom se do budoducna měli vyhnout dalším
 úpravám.
 
 Změna se týká následujících VPS:
