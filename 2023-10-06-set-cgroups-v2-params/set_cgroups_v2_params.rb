@@ -30,7 +30,7 @@ db.prepared("
     begin
       osctl(
         %i(ct cgparams set),
-        [row['id'], 'cpu.max', cpu_max],
+        [row['id'], 'cpu.max', "\"#{cpu_max}\""],
         {version: '2'},
       )
     rescue OsCtl::Lib::Exceptions::SystemCommandFailed
