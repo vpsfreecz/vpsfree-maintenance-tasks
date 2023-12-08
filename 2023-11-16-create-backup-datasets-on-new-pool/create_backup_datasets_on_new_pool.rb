@@ -30,7 +30,7 @@ module TransactionChains
           puts "Creating #{dst_pool.node.domain_name}:#{File.join(dst_pool.filesystem, dst_dip.dataset.full_name)}"
 
           append_t(Transactions::Storage::CreateDataset, args: dst_dip) do |t|
-            t.create(backup)
+            t.create(dst_dip)
           end
         end
 
