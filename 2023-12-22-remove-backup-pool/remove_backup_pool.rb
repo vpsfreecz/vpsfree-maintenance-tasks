@@ -88,6 +88,8 @@ class DeleteBackupPool
         end
       end
 
+      dip.destroy!
+
       puts
     end
   end
