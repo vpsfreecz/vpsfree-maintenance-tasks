@@ -13,6 +13,7 @@ module TransactionChains
 
     class Custom < TransactionChain
       label 'Disown unused IPs'
+      allow_empty
 
       include ReplaceIspIps
 
