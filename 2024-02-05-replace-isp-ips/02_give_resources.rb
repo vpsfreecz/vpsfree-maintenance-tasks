@@ -106,5 +106,5 @@ ActiveRecord::Base.transaction do
   # Save given resources
   save_users_resources(users_resources, ARGV[0])
 
-  fail 'set EXECUTE=yes' unless execute_changed?
+  fail 'set EXECUTE=yes' unless execute_changes?
 end
