@@ -82,10 +82,10 @@ module TransactionChains
     class Custom < TransactionChain
       label 'Replace IPs'
 
-      def link_chain(user, ips, except_networks)
+      def link_chain(user, ips, except_networks, except_ips)
         puts "User #{user.login}"
         
-        all_replacements, vps_replacements  = get_replacements(user, ips, except_networks)
+        all_replacements, vps_replacements  = get_replacements(user, ips, except_networks, except_ips)
 
         mail_custom(
           from: 'podpora@vpsfree.cz',
@@ -103,7 +103,7 @@ module TransactionChains
       end
 
       protected
-      def get_replacements(user, ips, except_networks)
+      def get_replacements(user, ips, except_networks, except_ips)
         all_replacements = []
         vps_replacements = {}
 
@@ -111,14 +111,29 @@ module TransactionChains
           vps = ip.network_interface.vps
           vps_replacements[vps] ||= []
 
-          dst_ip = ::IpAddress.pick_addr!(
-            user: user,
-            location: vps.node.location,
-            ip_v: ip.network.ip_version,
-            role: ip.network.role.to_sym,
-            purpose: ip.network.purpose.to_sym,
-            except_networks: except_networks,
-          )
+          dst_ip = nil
+
+          loop do
+            begin
+              dst_ip = pick_addr!(
+                user: user,
+                location: vps.node.location,
+                ip_v: ip.network.ip_version,
+                role: ip.network.role.to_sym,
+                purpose: ip.network.purpose.to_sym,
+                except_networks: except_networks,
+                except_ips: except_ips
+              )
+
+              lock(dst_ip)
+            rescue ResourceLocked
+              next
+            else
+              break
+            end
+          end
+
+          except_ips << dst_ip
           
           replacement = IpReplacement.new(
             vps:,
@@ -149,6 +164,59 @@ module TransactionChains
 
         [all_replacements, vps_replacements]
       end
+
+      # Return first free and unlocked IP address version `v` from `location`
+      #
+      # If option `:address_location` is used, the IP addresses is selected only
+      # from networks that are available both in `:location` and `:address_location`.
+      #
+      # @param opts [Hash]
+      # @option opts [::User] :user target user
+      # @option opts [::Location] :location target location
+      # @option opts [4, 6] :ip_v IP version
+      # @option opts [:public_access, :private_access] :role network role
+      # @option opts [:any, :vps, :export] :purpose network purpose
+      # @option opts [Array<::Network>] :except_networks
+      # @option opts [Array<::IpAddress>] :except_ips
+      def pick_addr!(opts)
+        opts[:role] ||= :public_access
+        opts[:purpose] ||= :any
+
+        q = ::IpAddress.select('ip_addresses.*')
+                .joins(network: :location_networks)
+                .joins("LEFT JOIN resource_locks rl ON rl.resource = 'IpAddress' AND rl.row_id = ip_addresses.id")
+                .where(
+                  networks: {
+                    ip_version: opts[:ip_v],
+                    role: ::Network.roles[opts[:role]]
+                  }
+                )
+                .where('network_interface_id IS NULL')
+                .where('(ip_addresses.user_id = ? OR ip_addresses.user_id IS NULL)', opts[:user].id)
+                .where('rl.id IS NULL')
+                .where(
+                  location_networks: {
+                    location_id: opts[:location].id,
+                    autopick: true
+                  }
+                )
+
+        if opts[:purpose] != :any
+          q = q.where(
+            networks: {
+              purpose: [
+                ::Network.purposes[:any],
+                ::Network.purposes[opts[:purpose]]
+              ]
+            }
+          )
+        end
+
+        q = q.where.not(network: opts[:except_networks]) if opts[:except_networks]
+        q = q.where.not(id: opts[:except_ips].map(&:id)) if opts[:except_ips]
+
+        q.order('ip_addresses.user_id DESC, location_networks.priority, ip_addresses.id').take!
+      end
     end
   end
 end
@@ -164,6 +232,7 @@ networks = get_networks
 users_ips = get_users_ips(networks)
 
 # Assign replacements
+new_ips = []
 replacements = {}
 
 users_ips.each do |user, ips|
@@ -171,6 +240,7 @@ users_ips.each do |user, ips|
     user,
     ips,
     networks,
+    new_ips,
   ])
 
   # Save replacements in each iteration
