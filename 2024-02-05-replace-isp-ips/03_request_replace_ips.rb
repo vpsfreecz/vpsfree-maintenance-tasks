@@ -153,7 +153,7 @@ module TransactionChains
   end
 end
 
-if ARGV.length != 1
+if ARGV.length < 1
   fail "Usage: #{$0} <replacements save file>"
 end
 

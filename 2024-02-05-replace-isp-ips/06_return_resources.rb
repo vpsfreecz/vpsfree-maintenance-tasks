@@ -45,7 +45,7 @@ def load_users_resources(file)
   JSON.parse(File.read(file), symbolize_names: true)[:user_resources]
 end
 
-if ARGV.length != 1
+if ARGV.length < 1
   fail "Usage: #{$0} <resource save file>"
 end
 

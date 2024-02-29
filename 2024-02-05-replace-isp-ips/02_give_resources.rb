@@ -89,7 +89,7 @@ def save_users_resources(users_resources, file)
   )
 end
 
-if ARGV.length != 1
+if ARGV.length < 1
   fail "Usage: #{$0} <resource save file>"
 end
 
