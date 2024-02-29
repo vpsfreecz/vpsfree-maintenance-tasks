@@ -5,7 +5,7 @@
 # TODO: properly decide what to do if the values have changed in between.
 #
 # Usage:
-#   EXECUTE=yes $0 $(pwd)/given-resources.json
+#   $0 $(pwd)/given-resources.json EXECUTE=yes
 #
 require 'vpsadmin'
 require_relative 'common'
@@ -56,5 +56,5 @@ ActiveRecord::Base.transaction do
   # Return additional resources
   return_users_resources(users_resources)
 
-  fail 'set EXECUTE=yes' if ENV['EXECUTE'] != 'yes'
+  fail 'set EXECUTE=yes' unless execute_changes?
 end

@@ -3,7 +3,7 @@
 # assigned to an interface, we consider the change fullfilled.
 #
 # Usage:
-#   EXECUTE=yes $0 $(pwd)/replacements.json
+#   $0 $(pwd)/replacements.json EXECUTE=yes
 #
 require 'vpsadmin'
 require_relative 'common'
@@ -111,7 +111,7 @@ module TransactionChains
           )
         end
 
-        fail 'set EXECUTE=yes' if ENV['EXECUTE'] != 'yes'
+        fail 'set EXECUTE=yes' unless execute_changes?
       end
 
       protected

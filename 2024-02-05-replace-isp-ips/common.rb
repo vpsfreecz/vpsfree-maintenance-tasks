@@ -39,6 +39,10 @@ module ReplaceIspIps
 
     users_ips
   end
+
+  def execute_changes?
+    ARGV.include?('EXECUTE=yes')
+  end
 end
 
 IpReplacement = Struct.new(:vps, :netif, :src_ip, :dst_ip, keyword_init: true) do

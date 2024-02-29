@@ -2,7 +2,7 @@
 # Disown IP addresses that are not used in any VPS
 #
 # Usage:
-#   EXECUTE=yes $0 $(pwd)/disowned-ips.json
+#   $0 $(pwd)/disowned-ips.json EXECUTE=yes
 #
 require 'vpsadmin'
 require_relative 'common'
@@ -47,7 +47,7 @@ module TransactionChains
 
         File.write(save_file, JSON.pretty_generate({disowned_ips: disowned_ips}))
 
-        fail 'set EXECUTE=yes' if ENV['EXECUTE'] != 'yes'
+        fail 'set EXECUTE=yes' unless execute_changes?
       end
     end
   end

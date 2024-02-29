@@ -3,7 +3,7 @@
 # them.
 #
 # Usage:
-#   EXECUTE=yes $0 $(pwd)/given-resources.json
+#   $0 $(pwd)/given-resources.json EXECUTE=yes
 #
 require 'vpsadmin'
 require_relative 'common'
@@ -106,5 +106,5 @@ ActiveRecord::Base.transaction do
   # Save given resources
   save_users_resources(users_resources, ARGV[0])
 
-  fail 'set EXECUTE=yes' if ENV['EXECUTE'] != 'yes'
+  fail 'set EXECUTE=yes' unless execute_changed?
 end
