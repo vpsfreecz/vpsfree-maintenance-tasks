@@ -118,7 +118,12 @@ module TransactionChains
       def load_replacements(save_file)
         json = JSON.parse(File.read(save_file), symbolize_names: true)
 
-        Hash[json[:replacements].map do |user_id, replacements|
+        Hash[json[:replacements].map do |user_id, tmp|
+          # There is a bug in 03_request_replace_ips.rb which saves the return
+          # value of a transaction chain, which is [chain, value]. So we skip
+          # the chain identifier and access the value.
+          _, replacements = tmp
+
           [
             ::User.find(user_id),
             replacements.map do |v|
