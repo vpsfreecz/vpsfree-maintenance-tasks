@@ -38,6 +38,10 @@ V případě potřeby nastavení reverzních záznamů prosím odpověz na tento
 s informací, pro jakou IP adresu a doménu chceš záznam nastavit. Obratem ti jej
 nastavíme.
 
+Více informací a odpovědi na časté dotazy najdeš ve znalostní bázi:
+
+  https://kb.vpsfree.cz/informace/vymena_ip
+
 S pozdravem,
 
 tým vpsFree.cz
@@ -66,6 +70,11 @@ We'd appreciate if you could plan this change as soon as possible. After May 1
 
 In case you'll need reverse records to be set, please reply to this e-mail
 and tell us what domain you'd like to set it to.
+
+More information and answers to frequently asked questions can be found
+in knowledge base:
+
+  https://kb.vpsfree.org/information/ip_replacement
 
 Best regards,
 
