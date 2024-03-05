@@ -137,7 +137,7 @@ module TransactionChains
           _, replacements = tmp
 
           [
-            ::User.find(user_id),
+            ::User.find(user_id.to_s.to_i),
             replacements.map do |v|
               IpReplacement.new(
                 vps: ::Vps.find(v[:vps]),
