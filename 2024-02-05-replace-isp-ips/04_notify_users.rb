@@ -99,7 +99,10 @@ module TransactionChains
           replacements.each do |r|
             # If the original address is no longer on the interface, consider
             # the exchange completed.
-            next if r.src_ip.network_interface.nil?
+            if r.src_ip.network_interface.nil? \
+               || r.src_ip.host_ip_addresses.where.not(order: nil).empty?
+              next
+            end
 
             vps_replacements[r.vps] ||= []
             vps_replacements[r.vps] << r
