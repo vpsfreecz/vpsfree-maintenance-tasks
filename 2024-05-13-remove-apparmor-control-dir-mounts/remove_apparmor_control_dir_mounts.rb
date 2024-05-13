@@ -20,7 +20,7 @@ rs = db.prepared(
 )
 
 rs.each do |row|
-  vps_id = row['vps_id']
+  vps_id = row['id']
 
   puts "VPS #{vps_id}"
 
