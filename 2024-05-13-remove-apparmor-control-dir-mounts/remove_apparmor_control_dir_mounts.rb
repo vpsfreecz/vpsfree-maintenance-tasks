@@ -26,4 +26,6 @@ rs.each do |row|
 
   osctl(%i[ct mounts del], [vps_id, '/sys/kernel/security'], {}, {}, valid_rcs: [1])
   osctl(%i[ct mounts del], [vps_id, '/sys/module/apparmor'], {}, {}, valid_rcs: [1])
+
+  sleep(1)
 end
