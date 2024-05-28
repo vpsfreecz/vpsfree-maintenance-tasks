@@ -89,18 +89,14 @@ module TransactionChains
 
           vpses.each do |vps|
             vps.network_interfaces.each do |netif|
-              private_ips = netif.ip_addresses.joins(:network).where(networks: {
-                role: 'private_access'
-              })
-              next if private_ips.empty?
+              first_ip = netif.ip_addresses
+                .joins(:host_ip_addresses)
+                .where.not(host_ip_addresses: { order: nil })
+                .order('host_ip_addresses.order')
+                .take
 
-              private_ips.each do |ip|
-                ip.host_ip_addresses.each do |host|
-                  if host.order == 0
-                    vpses_with_private_ips << vps
-                    break
-                  end
-                end
+              if first_ip && first_ip.network.role == 'private_access'
+                vpses_with_private_ips << vps
               end
             end
           end
