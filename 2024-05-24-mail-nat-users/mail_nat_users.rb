@@ -82,7 +82,10 @@ module TransactionChains
 
       def link_chain
         ::User.where(object_state: 'active').each do |user|
-          vpses = user.vpses.where(object_state: 'active')
+          vpses = user.vpses.joins(:node).where(
+            object_state: 'active',
+            nodes: {location_id: [3, 5, 7]}
+          )
           next if vpses.empty?
 
           vpses_with_private_ips = []
