@@ -32,7 +32,7 @@ def return_users_resources(users_resources)
 
       new_value = crpi.value - item[:added]
 
-      if new_value <= 0
+      if new_value < 0
         warn "  new value is less or equal to zero in item #{item.inspect}"
       end
 
