@@ -12,31 +12,42 @@ module TransactionChains
         input_records = JSON.parse(File.read(input_json_file))['records']
 
         # Create records
-        dns_server_zone_records, output_records = create_records(input_records)
+        dns_server_zone_records, created_host_ips, output_records = create_records(input_records)
 
         # Save output
         File.write(output_json_file, JSON.pretty_generate({ records: output_records }))
 
         # Fire transactions per server-zone
-        configure_servers(dns_server_zone_records)
+        configure_servers(dns_server_zone_records, created_host_ips)
       end
 
       protected
 
       def create_records(records)
         dns_server_zone_records = {}
+        created_host_ips = []
         output_records = []
 
         records.each do |r|
-          host_ip_address = ::HostIpAddress.find_by!(ip_addr: r['ip'])
+          host_ip_address, missing_host = get_host_ip_address(r)
+
+          imported =
+            if host_ip_address.nil?
+              false
+            else
+              !host_ip_address.current_owner.nil?
+            end
 
           output_records << {
             ip: r['ip'],
             ptr: r['ptr'],
-            imported: !host_ip_address.current_owner.nil?
+            imported:,
+            created: missing_host
           }
 
-          next if host_ip_address.current_owner.nil?
+          next unless imported
+
+          created_host_ips << host_ip_address if missing_host
 
           ptr_content = r['ptr']
 
@@ -92,10 +103,37 @@ module TransactionChains
           end
         end
 
-        [dns_server_zone_records, output_records]
+        [dns_server_zone_records, created_host_ips, output_records]
       end
 
-      def configure_servers(dns_server_zone_records)
+      def get_host_ip_address(r)
+        host_ip = ::HostIpAddress.find_by(ip_addr: r['ip'])
+        return [host_ip, false] if host_ip
+
+        addr = IPAddress.parse(r['ip'])
+        ip_v = addr.ipv4? ? 4 : 6
+
+        network = ::Network.where(ip_version: ip_v).detect { |n| n.include?(r['ip']) }
+
+        if network.nil?
+          fail "Network for #{r['ip']} not found"
+        end
+
+        ip = network.ip_addresses.detect { |ip| ip.include?(addr) }
+        return [nil, false] if ip.current_owner.nil?
+
+        host_ip = ::HostIpAddress.create!(
+          ip_address: ip,
+          ip_addr: addr.to_s,
+          order: nil,
+          auto_add: false,
+          user_created: true
+        )
+
+        [host_ip, true]
+      end
+
+      def configure_servers(dns_server_zone_records, created_host_ips)
         dns_server_zone_records.each do |dns_server_zone, records|
           create_records = []
           update_records = []
@@ -124,6 +162,10 @@ module TransactionChains
         end
 
         append_t(Transactions::Utils::NoOp, args: find_node_id) do |t|
+          created_host_ips.each do |host_ip|
+            t.just_create(host_ip)
+          end
+
           dns_server_zone_records.each_value do |records|
             records.each do |r|
               if r[:created]
