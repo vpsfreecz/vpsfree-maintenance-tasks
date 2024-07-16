@@ -33,7 +33,7 @@ SERVERS = {
   },
   'ns3.vpsfree.cz' => {
     node: 13,
-    ipv4: '37.205.12.252',
+    ipv4: '37.205.15.45',
     ipv6: '2a03:3b40:fe:2be::1',
     user_zones: true
   },
