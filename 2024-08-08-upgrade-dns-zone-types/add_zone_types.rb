@@ -18,10 +18,10 @@ db = NodeCtld::Db.new
 db.prepared('
   SELECT dns_zones.name, dns_zones.zone_source, dns_server_zones.zone_type
   FROM dns_server_zones
-  INNER JOIN dns_servers ds ON dns_servers.id = dns_server_zones.dns_server_id
+  INNER JOIN dns_servers ON dns_servers.id = dns_server_zones.dns_server_id
   INNER JOIN dns_zones ON dns_zones.id = dns_server_zones.dns_zone_id
   WHERE dns_servers.node_id = ?
-', $CFG.get(:vpsadmin, :node_id)).each do |dsz|
+', $CFG.get(:vpsadmin, :node_id)).each do |row|
   puts "DNS zone #{row['name']}"
 
   source = ZONE_SOURCES[row['zone_source']]
