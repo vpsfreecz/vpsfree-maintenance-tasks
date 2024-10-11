@@ -84,7 +84,7 @@ module TransactionChains
 
           puts "Mailing user #{user.id} #{user.login}"
           vpses.each do |vps|
-            puts "  VPS #{vps.id} #{vps.hostname} #{vps.os_template.label}"
+            puts "  VPS #{vps.id} #{vps.hostname} #{vps.os_template.label} #{vps.node.domain_name}"
           end
 
           mail_custom(
