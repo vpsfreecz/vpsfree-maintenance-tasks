@@ -28,7 +28,8 @@ Na node6.brq máš tyto VPS:
   <%= vps.id %> <%= vps.hostname %> (<%= vps.os_template.label %> cgroups v2 <%= vps.os_template.cgroup_version == 'cgroup_v1' ? 'nepodporuje' : 'podporuje' %>)
 <% end -%>
 
-Přesun VPS můžeme domluvit na konkrétní čas. Vzhledem ke změně cgroups doporučujeme
+Přesun VPS můžeme domluvit na konkrétní čas, nebo jej spustit v rámci okna pro
+odstávky nastavitelného v detailu VPS. Vzhledem ke změně cgroups doporučujeme
 posléze zkontrolovat funkčnost.
 
 Dej prosím vědět, jestli si přeješ svůj VPS přesunout.
@@ -60,8 +61,9 @@ You have the following VPS on node6.brq:
   <%= vps.id %> <%= vps.hostname %> (cgroups v2 is <%= vps.os_template.cgroup_version == 'cgroup_v1' ? 'not supported' : 'supported' %> by <%= vps.os_template.label %>)
 <% end -%>
 
-The move can be planned on a specific day and time. Due to the cgroups change,
-we recommend that you check that everything is working as expected afterwards.
+The move can be planned on a specific day and time or during maintenance window
+configured in VPS details. Due to the cgroups change, we recommend that you check
+that everything is working as expected afterwards.
 
 Please let us know if you'd like to have your VPS moved.
 
