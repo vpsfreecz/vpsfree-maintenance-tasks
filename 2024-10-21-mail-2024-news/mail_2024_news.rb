@@ -101,6 +101,9 @@ Best regards,
 vpsFree.cz team
 END
 
+# Load plugins
+VpsAdmin::API.default
+
 module TransactionChains
   module Maintenance
     remove_const(:Custom)
@@ -109,10 +112,13 @@ module TransactionChains
       label 'Notice'
 
       def link_chain
+        i = 0
+
         ::User.joins(:user_account).where(
           object_state: 'active',
           mailer_enabled: true
         ).where.not(user_accounts: { paid_until: nil }).each do |user|
+          puts "Mail #{user.id} #{user.login}"
           mail_custom(
             from: 'podpora@vpsfree.cz',
             reply_to: 'podpora@vpsfree.cz',
@@ -122,7 +128,11 @@ module TransactionChains
             text_plain: MAIL[user.language.code.to_sym],
             vars: { user: }
           )
+
+          i += 1
         end
+
+        puts "Sent #{i} emails"
 
         fail 'not yet bro'
       end
