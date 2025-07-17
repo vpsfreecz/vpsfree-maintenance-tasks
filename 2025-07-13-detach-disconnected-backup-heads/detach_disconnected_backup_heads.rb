@@ -69,4 +69,6 @@ to_detach.each do |action|
       branch.update!(head: false)
     end
   end
+
+  ::Dataset.increment_counter(:current_history_id, action.dst_dataset_in_pool.dataset_id)
 end
