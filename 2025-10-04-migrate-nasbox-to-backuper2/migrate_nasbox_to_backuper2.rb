@@ -22,6 +22,15 @@ counter = 0
   break if counter >= LIMIT
 
   puts "Dataset #{ds.full_name}"
+
+  dip = ds.primary_dataset_in_pool!
+
+  if ::ResourceLock.where(resource: 'DatasetInPool', row_id: dip.id).any?
+    puts '  locked'
+    puts
+    next
+  end
+
   puts "  user #{ds.user.login}"
 
   exports = []
@@ -52,8 +61,6 @@ counter = 0
     puts
     next
   end
-
-  dip = ds.primary_dataset_in_pool!
 
   # First get a VPS with existing mount
   vps = export_mounts.first&.vps
