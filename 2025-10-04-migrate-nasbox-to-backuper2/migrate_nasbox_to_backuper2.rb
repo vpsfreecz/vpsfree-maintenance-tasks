@@ -10,8 +10,21 @@ LIMIT = 50
 MAX_VPS_WITH_MOUNTS = 1
 
 REASONS = {
-  'cs' => 'Přesun na novější diskové pole',
-  'en' => 'Transfer to a newer storage pool'
+  'cs' => 'Přesun na novější diskové pole.',
+  'en' => 'Transfer to a newer storage pool.'
+}
+
+MULTIPLE_VPS = {
+  'cs' => <<~END,
+    Po přesunu bude nutné NFS mounty ve VPS odpojit a znovu připojit, jinak to při
+    přístupu k datům bude vracet chybu "Stale file handle" z důvodu nevyhnutelné
+    změny fsid v NFS.
+  END
+  'en' => <<~END,
+    After the transfer, it will be necessary to remount NFS mounts inside VPS.
+    Otherwise, accessing the mountpoints will result in "Stale file handle" error
+    due to unavoidable change of fsid in NFS.
+  END
 }
 
 RSYNC_DATASETS = %w[]
@@ -93,6 +106,20 @@ counter = 0
     puts '  using send/recv'
   end
 
+  restart_vps = true
+  reason = REASONS.fetch(ds.user.language.code).dup
+
+  if vps_count > 1
+    restart_vps = false
+    reason << "\n\n" << MULTIPLE_VPS.fetch(ds.user.language.code)
+  end
+
+  if restart_vps
+    puts '  would restart VPS'
+  else
+    puts '  no VPS restart'
+  end
+
   STDOUT.write('Continue? [y/N]:')
 
   if STDIN.readline.strip.downcase != 'y'
@@ -105,12 +132,12 @@ counter = 0
       args: [dip, dst_pool],
       kwargs: {
         rsync:,
-        restart_vps: true,
+        restart_vps:,
         maintenance_window_vps: vps,
         optional_maintenance_window: true,
         cleanup_data: false,
         send_mail: true,
-        reason: REASONS.fetch(ds.user.language.code)
+        reason:
       }
     )
 
