@@ -14,6 +14,8 @@ REASONS = {
   'en' => 'Transfer to a newer storage pool'
 }
 
+RSYNC_DATASETS = %w[]
+
 dst_pool = ::Pool.find(DST_POOL_ID)
 env_prod = ::Environment.find_by!(label: 'Production')
 counter = 0
@@ -83,6 +85,14 @@ counter = 0
     puts '  no VPS found'
   end
 
+  rsync = RSYNC_DATASETS.include?(ds.full_name)
+
+  if rsync
+    puts '  using rsync'
+  else
+    puts '  using send/recv'
+  end
+
   STDOUT.write('Continue? [y/N]:')
 
   if STDIN.readline.strip.downcase != 'y'
@@ -94,6 +104,7 @@ counter = 0
     chain, = TransactionChains::Dataset::Migrate.fire2(
       args: [dip, dst_pool],
       kwargs: {
+        rsync:,
         restart_vps: true,
         maintenance_window_vps: vps,
         optional_maintenance_window: true,
