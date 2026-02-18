@@ -72,8 +72,8 @@ end
 # Preload relationships to avoid excessive queries
 zones = zone_scope.includes(dns_server_zones: { dns_server: :node }, dns_zone_transfers: [:host_ip_address, :dns_tsig_key]).to_a
 
-# actions_by_server: { DnsServer => [ { dns_server_zone_id:, dns_zone_id:, zone_name:, peers: [server_opts...] } ] }
-actions_by_server = Hash.new { |h, k| h[k] = [] }
+# actions_by_zone: { DnsZone => [ { dns_server_zone_id:, dns_zone_id:, zone_name:, dns_server_id:, dns_server_name:, dns_server_node_id:, peers: [server_opts...] } ] }
+actions_by_zone = Hash.new { |h, k| h[k] = [] }
 
 zones.each do |zone|
   # All vpsAdmin-hosted server-zones of this external zone
@@ -102,10 +102,13 @@ zones.each do |zone|
 
     next if peers.empty?
 
-    actions_by_server[dns_server] << {
+    actions_by_zone[zone] << {
       dns_server_zone_id: dsz.id,
       dns_zone_id: zone.id,
       zone_name: zone.name,
+      dns_server_id: dns_server.id,
+      dns_server_name: dns_server.name,
+      dns_server_node_id: dns_server.node_id,
       peers:
     }
   end
@@ -118,29 +121,31 @@ plan = {
     zone: zone_name_filter,
     server: server_name_filter
   },
-  servers: actions_by_server.map do |dns_server, actions|
+  zones: actions_by_zone.map do |zone, actions|
     {
-      dns_server_id: dns_server.id,
-      dns_server_name: dns_server.name,
-      node_id: dns_server.node_id,
-      zones: actions.sort_by { |a| a[:zone_name] }.map do |a|
+      dns_zone_id: zone.id,
+      name: zone.name,
+      servers: actions.sort_by { |a| a[:dns_server_name] }.map do |a|
         {
           dns_zone_id: a[:dns_zone_id],
           dns_server_zone_id: a[:dns_server_zone_id],
-          name: a[:zone_name],
+          dns_server_id: a[:dns_server_id],
+          dns_server_name: a[:dns_server_name],
+          dns_server_node_id: a[:dns_server_node_id],
           peer_ip_addrs: a[:peers].map { |p| p[:ip_addr] || p['ip_addr'] },
           peers: a[:peers]
         }
       end
     }
-  end.sort_by { |s| s[:dns_server_name] }
+  end.sort_by { |z| z[:name] }
 }
 
 # Print summary
-server_count = actions_by_server.keys.count
-zone_count = actions_by_server.values.sum(&:count)
+server_zone_count = actions_by_zone.values.sum(&:count)
+zone_count = actions_by_zone.keys.count
+server_count = actions_by_zone.values.flat_map { |actions| actions.map { |a| a[:dns_server_id] } }.uniq.count
 
-puts "Found #{zone_count} external zone server-instances to update across #{server_count} DNS servers"
+puts "Found #{server_zone_count} external zone server-instances to update across #{server_count} DNS servers (#{zone_count} zones)"
 
 if plan_path && !plan_path.empty?
   File.write(plan_path, JSON.pretty_generate(plan))
@@ -148,7 +153,7 @@ if plan_path && !plan_path.empty?
 end
 
 if !execute
-  puts "Dry-run: set EXECUTE=yes to enqueue transaction chains"
+  puts "Dry-run: pass --execute to enqueue transaction chains"
   exit 0
 end
 
@@ -160,10 +165,10 @@ module TransactionChains
     class Custom < TransactionChain
       label 'Fix external DNS zone secondaries'
 
-      # @param dns_server_id [Integer]
+      # @param dns_zone_id [Integer]
       # @param action_list [Array<Hash>]
-      def link_chain(dns_server_id, action_list)
-        dns_server = ::DnsServer.find(dns_server_id)
+      def link_chain(dns_zone_id, action_list)
+        dns_server_ids = {}
 
         action_list.each do |a|
           dsz = ::DnsServerZone.find(a.fetch(:dns_server_zone_id))
@@ -176,23 +181,27 @@ module TransactionChains
             args: [dsz],
             kwargs: { secondaries: peers }
           )
+
+          dns_server_ids[dsz.dns_server_id] = true
         end
 
-        # Apply all updated zones on this server
-        append_t(::Transactions::DnsServer::Reload, args: [dns_server])
+        # Apply all updated zones on every server hosting this zone
+        dns_server_ids.keys.sort.each do |server_id|
+          append_t(::Transactions::DnsServer::Reload, args: [::DnsServer.find(server_id)])
+        end
       end
     end
   end
 end
 
-# Enqueue one chain per DNS server
-actions_by_server.each do |dns_server, actions|
+# Enqueue one chain per DNS zone
+actions_by_zone.each do |zone, actions|
   next if actions.empty?
 
   chain, _ret = TransactionChains::Maintenance::Custom.fire(
-    dns_server.id,
+    zone.id,
     actions
   )
 
-  puts "Queued chain ##{chain.id} for #{dns_server.name} (#{actions.length} zones)"
+  puts "Queued chain ##{chain.id} for #{zone.name} (#{actions.length} servers)"
 end
