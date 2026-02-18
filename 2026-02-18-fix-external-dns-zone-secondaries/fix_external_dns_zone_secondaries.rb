@@ -129,9 +129,9 @@ end
 # Transaction chain definition
 module TransactionChains
   module Maintenance
-    remove_const(:FixExternalDnsZoneSecondaries) if const_defined?(:FixExternalDnsZoneSecondaries)
+    remove_const(:Custom) if const_defined?(:Custom)
 
-    class FixExternalDnsZoneSecondaries < TransactionChain
+    class Custom < TransactionChain
       label 'Fix external DNS zone secondaries'
 
       # @param dns_server_id [Integer]
@@ -163,7 +163,7 @@ end
 actions_by_server.each do |dns_server, actions|
   next if actions.empty?
 
-  chain, _ret = TransactionChains::Maintenance::FixExternalDnsZoneSecondaries.fire(
+  chain, _ret = TransactionChains::Maintenance::Custom.fire(
     dns_server.id,
     actions
   )
