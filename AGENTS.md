@@ -23,7 +23,8 @@
 - Validate scripts by running them in a safe environment and reviewing output before executing on production systems.
 
 ## Commit & Pull Request Guidelines
-- Commit messages typically follow `Add YYYY-MM-DD-task-name` or `task-name: short action`.
+- Commit messages must be prefixed with the task directory name, followed by a colon and a short action, e.g. `2026-02-18-fix-external-dns-zone-secondaries: use Custom transaction chain name`.
+- For changes to `AGENTS.md`, use the prefix `agents:`.
 - PRs should explain the maintenance goal, list execution steps (commands and paths), and note any safety checks or rollback considerations.
 
 ## Security & Configuration Tips
