@@ -14,29 +14,55 @@
 # Dry-run by default.
 #
 # Usage (dry-run):
-#   PLAN=/root/external-dns-secondaries-plan.json \
-#     ./2026-02-18-fix-external-dns-zone-secondaries/fix_external_dns_zone_secondaries.rb
+#   ./2026-02-18-fix-external-dns-zone-secondaries/fix_external_dns_zone_secondaries.rb \
+#     --plan /root/external-dns-secondaries-plan.json
 #
 # Usage (execute):
-#   PLAN=/root/external-dns-secondaries-plan.json EXECUTE=yes \
-#     ./2026-02-18-fix-external-dns-zone-secondaries/fix_external_dns_zone_secondaries.rb
+#   ./2026-02-18-fix-external-dns-zone-secondaries/fix_external_dns_zone_secondaries.rb \
+#     --plan /root/external-dns-secondaries-plan.json --execute
 #
 # Optional filters:
-#   ZONE=example.com.         (only this zone)
-#   SERVER=ns3.vpsfree.cz     (only this DNS server)
+#   --zone example.com.       (only this zone)
+#   --server ns3.vpsfree.cz   (only this DNS server)
 #
 require 'vpsadmin'
 require 'json'
+require 'optparse'
 require 'time'
 
-def truthy?(v)
-  %w[1 yes true y].include?(v.to_s.strip.downcase)
-end
+options = {
+  execute: false
+}
 
-zone_name_filter = ENV['ZONE']
-server_name_filter = ENV['SERVER']
-plan_path = ENV['PLAN']
-execute = truthy?(ENV['EXECUTE'])
+OptionParser.new do |opts|
+  opts.banner = 'Usage: fix_external_dns_zone_secondaries.rb [options]'
+
+  opts.on('--plan PATH', 'Write plan JSON to PATH') do |value|
+    options[:plan] = value
+  end
+
+  opts.on('--execute', 'Enqueue transaction chains (default: dry-run)') do
+    options[:execute] = true
+  end
+
+  opts.on('--zone NAME', 'Only this zone') do |value|
+    options[:zone] = value
+  end
+
+  opts.on('--server NAME', 'Only this DNS server') do |value|
+    options[:server] = value
+  end
+
+  opts.on('-h', '--help', 'Show this help') do
+    puts opts
+    exit 0
+  end
+end.parse!
+
+zone_name_filter = options[:zone]
+server_name_filter = options[:server]
+plan_path = options[:plan]
+execute = options[:execute]
 
 zone_scope = DnsZone.existing.where(zone_source: :external_source)
 if zone_name_filter && !zone_name_filter.empty?
