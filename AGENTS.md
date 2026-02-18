@@ -17,6 +17,7 @@
 - Script names are `snake_case` and match the task intent.
 - Follow the style already used in the task folder; Ruby scripts commonly use 2-space indentation and simple, direct control flow.
 - Keep changes scoped to a single task directory unless you are updating shared tooling like `new` or `templates/`.
+- Maintenance transaction chains must be named `TransactionChains::Maintenance::Custom`.
 
 ## Testing Guidelines
 - No shared automated test framework exists in this repository.
