@@ -163,23 +163,23 @@ module TransactionChains
       # @param dns_server_id [Integer]
       # @param action_list [Array<Hash>]
       def link_chain(dns_server_id, action_list)
-        dns_server = DnsServer.find(dns_server_id)
+        dns_server = ::DnsServer.find(dns_server_id)
 
         action_list.each do |a|
-          dsz = DnsServerZone.find(a.fetch(:dns_server_zone_id))
+          dsz = ::DnsServerZone.find(a.fetch(:dns_server_zone_id))
           peers = a.fetch(:peers)
 
           next if peers.nil? || peers.empty?
 
           append_t(
-            Transactions::DnsServerZone::AddServers,
+            ::Transactions::DnsServerZone::AddServers,
             args: [dsz],
             kwargs: { secondaries: peers }
           )
         end
 
         # Apply all updated zones on this server
-        append_t(Transactions::DnsServer::Reload, args: [dns_server])
+        append_t(::Transactions::DnsServer::Reload, args: [dns_server])
       end
     end
   end
