@@ -41,12 +41,13 @@ MAIL = {
     konfiguraci. Oprava se týká pouze nastavení VPS v našem systému, z tvojí
     strany není potřeba nic měnit.
 
-    <% if @use_maintenance_window -%>
     <% if @custom_maintenance_window -%>
-    Práci naplánujeme do tohoto dočasného okna údržby:
-    <% else -%>
+    <% prep = %i(v      v       v     ve     ve      v     v) -%>
+    <% days = %i(neděli pondělí úterý středu čtvrtek pátek sobotu) -%>
+    Práci naplánujeme <%= prep[@finish_weekday] %> <%= days[@finish_weekday] %>
+    od <%= sprintf('%02d:%02d', @finish_minutes / 60, @finish_minutes % 60) %>.
+    <% elsif @use_maintenance_window -%>
     Práci naplánujeme do nastaveného okna údržby této VPS:
-    <% end -%>
 
     <%= @maintenance_window_text %>
     <% else -%>
@@ -67,12 +68,11 @@ MAIL = {
     <%= @vps.hostname %>. The change only affects how the VPS is configured in
     our system; no action is required from you.
 
-    <% if @use_maintenance_window -%>
     <% if @custom_maintenance_window -%>
-    We will schedule the work during this temporary maintenance window:
-    <% else -%>
+    <% days = %i(Sunday Monday Tuesday Wednesday Thursday Friday Saturday) -%>
+    We will schedule the work on <%= days[@finish_weekday] %> from <%= sprintf('%02d:%02d', @finish_minutes / 60, @finish_minutes % 60) %>.
+    <% elsif @use_maintenance_window -%>
     We will schedule the work during the configured maintenance window of this VPS:
-    <% end -%>
 
     <%= @maintenance_window_text %>
     <% else -%>
@@ -268,6 +268,8 @@ module TransactionChains
             text_plain: ::MAIL.fetch(opts[:language]),
             vars: {
               custom_maintenance_window: opts[:custom_maintenance_window],
+              finish_minutes: opts[:finish_minutes],
+              finish_weekday: opts[:finish_weekday],
               maintenance_window_text: opts[:maintenance_window_text],
               use_maintenance_window: opts[:use_maintenance_window],
               user: vps.user,
@@ -531,6 +533,8 @@ def process_vps(
       maintenance_window_text:,
       maintenance_windows:,
       custom_maintenance_window:,
+      finish_minutes:,
+      finish_weekday:,
       reserve_minutes:,
       send_mail: effective_send_mail,
       use_maintenance_window:,
