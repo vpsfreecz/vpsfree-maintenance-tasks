@@ -37,15 +37,12 @@ MAIL = {
   cs: <<~'END',
     Ahoj <%= @user.login %>,
 
-    u VPS <%= @vps.id %> <%= @vps.hostname %> potřebujeme opravit interní
-    konfiguraci. Oprava se týká pouze nastavení VPS v našem systému, z tvojí
-    strany není potřeba nic měnit.
+    u VPS <%= @vps.id %> <%= @vps.hostname %> potřebujeme opravit interní konfiguraci. Oprava se týká pouze nastavení VPS v našem systému, z tvojí strany není potřeba nic měnit.
 
     <% if @custom_maintenance_window -%>
     <% prep = %i(v      v       v     ve     ve      v     v) -%>
     <% days = %i(neděli pondělí úterý středu čtvrtek pátek sobotu) -%>
-    Práci naplánujeme <%= prep[@finish_weekday] %> <%= days[@finish_weekday] %>
-    od <%= sprintf('%02d:%02d', @finish_minutes / 60, @finish_minutes % 60) %>.
+    Práci naplánujeme <%= prep[@finish_weekday] %> <%= days[@finish_weekday] %> od <%= sprintf('%02d:%02d', @finish_minutes / 60, @finish_minutes % 60) %>.
     <% elsif @use_maintenance_window -%>
     Práci naplánujeme do nastaveného okna údržby této VPS:
 
@@ -54,8 +51,7 @@ MAIL = {
     Práci spustíme po zpracování požadavku administrátorem.
     <% end -%>
 
-    Během opravy může být VPS krátce nedostupná. Pokud by ti termín nevyhovoval,
-    odpověz prosím na tento e-mail.
+    Během opravy může být VPS krátce nedostupná. Pokud by ti termín nevyhovoval, odpověz prosím na tento e-mail.
 
     S pozdravem
 
@@ -64,9 +60,7 @@ MAIL = {
   en: <<~'END',
     Hi <%= @user.login %>,
 
-    we need to correct an internal configuration issue on VPS <%= @vps.id %>
-    <%= @vps.hostname %>. The change only affects how the VPS is configured in
-    our system; no action is required from you.
+    we need to correct an internal configuration issue on VPS <%= @vps.id %> <%= @vps.hostname %>. The change only affects how the VPS is configured in our system; no action is required from you.
 
     <% if @custom_maintenance_window -%>
     <% days = %i(Sunday Monday Tuesday Wednesday Thursday Friday Saturday) -%>
@@ -79,8 +73,7 @@ MAIL = {
     We will start the work after the administrator request is processed.
     <% end -%>
 
-    The VPS may be briefly unavailable during the maintenance. If this timing
-    would be inconvenient, please reply to this e-mail.
+    The VPS may be briefly unavailable during the maintenance. If this timing would be inconvenient, please reply to this e-mail.
 
     Best regards,
 
