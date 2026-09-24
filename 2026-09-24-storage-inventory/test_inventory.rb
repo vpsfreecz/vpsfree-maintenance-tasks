@@ -4,11 +4,110 @@ require 'open3'
 require 'rbconfig'
 require 'socket'
 require_relative 'compare'
+require_relative 'db_capture'
 
 class InventoryTest < Minitest::Test
   ROOT = 'tank/backups'.freeze
   SNAP = "#{ROOT}/users/42/tree.1/branch-main.1@daily".freeze
   CLONE = "#{ROOT}/vpsadmin/mount/42.daily".freeze
+
+  class FakeConnection
+    attr_reader :commands
+
+    def initialize
+      @commands = []
+      @raw_connection = Object.new
+    end
+
+    def open_transactions
+      0
+    end
+
+    def execute(sql)
+      @commands << sql
+    end
+
+    def select_value(sql)
+      @commands << sql
+      case sql
+      when 'SELECT @@SESSION.max_statement_time' then '0'
+      when StorageInventory::DbCapture::SERVER_CLOCK_SQL then '2026-09-24T12:00:00.000000Z'
+      when 'SELECT CONNECTION_ID()' then 17
+      else raise "unexpected scalar query: #{sql}"
+      end
+    end
+
+    def raw_connection
+      @raw_connection
+    end
+
+    def reconnect!
+      @raw_connection = Object.new
+    end
+  end
+
+  class FakeRelation
+    def initialize(rows, model)
+      @rows, @model = rows, model
+    end
+
+    def where(conditions)
+      selected = @rows.select do |row|
+        conditions.all? do |key, expected|
+          Array(expected).any? { |value| value.to_s == row[key].to_s }
+        end
+      end
+      self.class.new(selected, @model)
+    end
+
+    def in_batches(of:)
+      @rows.each_slice(of) do |slice|
+        @model.batch_sizes << slice.length
+        yield self.class.new(slice, @model)
+      end
+    end
+
+    def pluck(*fields)
+      raise 'simulated model query failure' if @model.fail_pluck
+      @model.after_pluck&.call
+      @rows.map { |row| fields.map { |field| row[field] } }
+    end
+  end
+
+  class FakeModel
+    attr_reader :connection, :rows, :batch_sizes
+    attr_accessor :fail_pluck, :after_pluck
+
+    def initialize(rows, connection, single: nil)
+      @rows, @connection, @single = rows, connection, single
+      @batch_sizes = []
+    end
+
+    def includes(*)
+      self
+    end
+
+    def find(id)
+      raise 'node absent' unless @single && @single.id == id
+      @single
+    end
+
+    def where(conditions)
+      FakeRelation.new(@rows, self).where(conditions)
+    end
+
+    def roles
+      { 'backup' => 2 }
+    end
+
+    def states
+      { 'online' => 1, 'active' => 0 }
+    end
+
+    def object_states
+      { 'active' => 0, 'deleted' => 1 }
+    end
+  end
 
   def setup
     @dir = Dir.mktmpdir
@@ -50,6 +149,23 @@ class InventoryTest < Minitest::Test
       ['snapshot_in_branch', { 'id' => 70, 'branch_id' => 40, 'snapshot_in_pool_id' => 60, 'confirmed' => 1 }],
       ['clone', { 'id' => 80, 'snapshot_in_pool_id' => 60, 'name' => '42.daily', 'confirmed' => 1 }]
     ]
+  end
+
+  def fake_db_models(connection)
+    records = db_records.group_by(&:first)
+    models = StorageInventory::DbCapture::MODEL_NAMES.keys.to_h do |key|
+      rows = records.fetch(key.to_s, []).map { |_type, row| row.transform_keys(&:to_sym) }
+      [key, FakeModel.new(rows, connection)]
+    end
+    node = records.fetch('node').first.last
+    node_struct = Struct.new(:id, :name, :location_domain, :fqdn, keyword_init: true)
+    models[:node] = FakeModel.new([], connection, single: node_struct.new(**node.transform_keys(&:to_sym)))
+    models[:pool].rows.first.merge!(role: 'backup', state: 'online', is_open: 1)
+    models[:dataset].rows.first[:object_state] = 'active'
+    models[:tree].rows.first[:head] = true
+    models[:branch].rows.first[:head] = true
+    models[:clone].rows.first[:state] = 'active'
+    models
   end
 
   def zfs_records
@@ -244,55 +360,122 @@ class InventoryTest < Minitest::Test
     end
   end
 
-  def test_db_client_failure_leaves_no_capture
-    config = File.join(@dir, 'client.cnf')
-    File.write(config, "[client]\nuser=reader\n")
-    File.chmod(0o600, config)
-    fake = File.join(@dir, 'mysql')
-    File.write(fake, <<~RUBY)
-      #!#{RbConfig.ruby}
-      input = STDIN.read
-      abort 'missing read-only transaction' unless input.include?('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY')
-      abort 'missing streaming/no-reconnect options' unless ARGV.include?('--quick') && ARGV.include?('--skip-reconnect')
-      puts "pool\\t{\\"id\\":1,\\"filesystem\\":\\"tank/backups\\"}"
-      warn 'simulated mysql failure'
-      exit 1
-    RUBY
-    File.chmod(0o700, fake)
+  def test_db_model_failure_rolls_back_and_leaves_no_capture
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    models[:snapshot].fail_pluck = true
     output = File.join(@dir, 'db.jsonl')
-    _stdout, stderr, status = Open3.capture3(RbConfig.ruby,
-      File.join(__dir__, 'capture_db.rb'), '--node-id', '2',
-      '--defaults-file', config, '--mysql-bin', fake, '--output', output)
-    refute status.success?
-    assert_includes stderr, 'simulated mysql failure'
+    error = assert_raises(RuntimeError) do
+      StorageInventory::DbCapture.new(node_id: 2, output: output,
+        connection: connection, models: models).run
+    end
+    assert_equal 'simulated model query failure', error.message
+    assert_includes connection.commands, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'
+    assert_includes connection.commands, 'START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY'
+    assert_includes connection.commands, 'SET SESSION max_statement_time = 30'
+    assert_equal ['ROLLBACK', 'SET SESSION max_statement_time = 0.0'], connection.commands.last(2)
     refute File.exist?(output)
     refute Dir.children(@dir).any? { |name| name.end_with?('.tmp') }
   end
 
-  def test_db_collector_streams_complete_private_capture
-    config = File.join(@dir, 'client.cnf')
-    File.write(config, "[client]\nuser=reader\n")
-    File.chmod(0o600, config)
-    fake = File.join(@dir, 'mysql-ok')
-    File.write(fake, <<~RUBY)
-      #!#{RbConfig.ruby}
-      input = STDIN.read
-      abort 'missing node scope' unless input.include?('WHERE n.id = 2')
-      abort 'missing lock query' unless input.include?("l.resource = 'Branch'")
-      abort 'missing streaming/no-reconnect options' unless ARGV.include?('--quick') && ARGV.include?('--skip-reconnect')
-      puts "observation\\t{\\"server_time_utc\\":\\"2026-09-24T00:00:00Z\\"}"
-      puts "node\\t{\\"id\\":2,\\"name\\":\\"backuper2\\",\\"location_domain\\":\\"backuper2.prg\\",\\"fqdn\\":\\"backuper2.prg.vpsfree.cz\\"}"
-      puts "pool\\t{\\"id\\":1,\\"node_id\\":2,\\"filesystem\\":\\"tank/backups\\"}"
-    RUBY
-    File.chmod(0o700, fake)
+  def test_db_models_capture_complete_private_batched_output
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    1_000.times do |i|
+      models[:snapshot].rows << { id: 1_000 + i, dataset_id: 10,
+                                  name: "extra-#{i}", history_id: 0, confirmed: 0 }
+    end
+    models[:resource_lock].rows << { id: 90, resource: 'DatasetInPool', row_id: 20 }
     output = File.join(@dir, 'db.jsonl')
-    _stdout, stderr, status = Open3.capture3(RbConfig.ruby,
-      File.join(__dir__, 'capture_db.rb'), '--node-id', '2',
-      '--defaults-file', config, '--mysql-bin', fake, '--output', output)
-    assert status.success?, stderr
+    StorageInventory::DbCapture.new(node_id: 2, output: output,
+      connection: connection, models: models).run
     capture = StorageInventory::Reader.new(output, 'db')
-    assert_equal 1, capture.records['node'].length
+    assert_equal 1_001, capture.records['snapshot'].length
+    assert_equal 1_000, models[:snapshot].batch_sizes.max
+    assert_equal 2, capture.records['pool'].first['role']
+    assert_equal 0, capture.records['dataset'].first['object_state']
+    assert_equal 1, capture.records['branch'].first['head']
+    assert_equal 0, capture.records['clone'].first['state']
+    assert_equal 0, capture.records['snapshot'].last['confirmed']
+    observation = capture.records['observation'].first
+    assert_equal '2026-09-24T12:00:00.000000Z', observation['server_time_utc']
+    assert_equal 17, observation['connection_id']
+    assert_operator Time.iso8601(observation.fetch('collector_finished_at_utc')), :>=,
+                    Time.iso8601(observation.fetch('collector_time_utc'))
+    assert_equal 1, capture.records['resource_lock'].length
+    assert_operator connection.commands.index('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ'), :<,
+                    connection.commands.index('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY')
+    assert_equal ['ROLLBACK', 'SET SESSION max_statement_time = 0.0'], connection.commands.last(2)
     assert_equal 0o600, File.stat(output).mode & 0o777
+  end
+
+  def test_db_models_scope_to_backup_pools_on_selected_node
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    models[:pool].rows.concat([
+      { id: 2, node_id: 3, role: 'backup', filesystem: 'tank/foreign' },
+      { id: 3, node_id: 2, role: 'primary', filesystem: 'tank/primary' }
+    ])
+    models[:dataset_in_pool].rows << { id: 21, pool_id: 2, dataset_id: 11, confirmed: 0 }
+    models[:dataset].rows << { id: 11, full_name: 'foreign', confirmed: 0 }
+    models[:snapshot].rows << { id: 51, dataset_id: 11, name: 'foreign', confirmed: 0 }
+
+    output = File.join(@dir, 'db.jsonl')
+    StorageInventory::DbCapture.new(node_id: 2, output: output,
+      connection: connection, models: models).run
+    records = StorageInventory::Reader.new(output, 'db').records
+
+    assert_equal [1], records.fetch('pool').map { |row| row.fetch('id') }
+    assert_equal [20], records.fetch('dataset_in_pool').map { |row| row.fetch('id') }
+    assert_equal [10], records.fetch('dataset').map { |row| row.fetch('id') }
+    assert_equal [50], records.fetch('snapshot').map { |row| row.fetch('id') }
+  end
+
+  def test_db_connection_replacement_aborts_capture
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    models[:snapshot].after_pluck = proc { connection.reconnect! }
+    output = File.join(@dir, 'db.jsonl')
+
+    error = assert_raises(RuntimeError) do
+      StorageInventory::DbCapture.new(node_id: 2, output: output,
+        connection: connection, models: models).run
+    end
+
+    assert_equal 'DB connection changed during capture', error.message
+    assert_includes connection.commands, 'ROLLBACK'
+    refute File.exist?(output)
+    refute Dir.children(@dir).any? { |name| name.end_with?('.tmp') }
+  end
+
+  def test_db_deadline_aborts_incomplete_capture
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    output = File.join(@dir, 'db.jsonl')
+    capture = StorageInventory::DbCapture.new(node_id: 2, output: output,
+      connection: connection, models: models)
+    models[:snapshot].after_pluck = proc { capture.instance_variable_set(:@deadline, 0) }
+
+    error = assert_raises(RuntimeError) { capture.run }
+
+    assert_equal 'DB capture exceeded 15-minute limit', error.message
+    assert_includes connection.commands, 'ROLLBACK'
+    refute File.exist?(output)
+    refute Dir.children(@dir).any? { |name| name.end_with?('.tmp') }
+  end
+
+  def test_api_runner_load_invokes_cli
+    argv = ARGV.dup
+    called_with = nil
+    ARGV.replace(['--node-id', '2', '--output', 'db.jsonl'])
+    original_cli = StorageInventory::DbCapture.method(:cli)
+    StorageInventory::DbCapture.define_singleton_method(:cli) { |args| called_with = args.dup }
+    load File.join(__dir__, 'capture_db.rb')
+
+    assert_equal ['--node-id', '2', '--output', 'db.jsonl'], called_with
+  ensure
+    StorageInventory::DbCapture.define_singleton_method(:cli, original_cli) if original_cli
+    ARGV.replace(argv)
   end
 
   def test_zfs_double_scan_marks_changed_guid

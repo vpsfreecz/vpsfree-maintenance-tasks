@@ -7,28 +7,44 @@ delete.
 
 ## Capture the database
 
-Run `capture_db.rb` where a MariaDB client can reach the production vpsAdmin
-database. Use a dedicated account with `SELECT` on the tables named in the
-script, no write grants, and a private client option file. A local socket may
-be used. Do not pass a password on the command line.
+Run `capture_db.rb` in the normal vpsAdmin API Ruby environment. Its shebang
+uses `vpsadmin-api-ruby`, whose runner loads the script as the configured API
+service user. The entry point then requires `vpsadmin` and uses that runtime's
+production database configuration; `db_capture.rb` holds the importable
+collector. There is no separate client option file, password argument or
+credential override in this task. The normal API account may have write
+grants. The collector's SQL `READ ONLY` transaction is the enforced database
+write protection for this run. A dedicated SELECT-only account would require
+separate API runtime configuration, which this task does not provide. The
+account also needs SELECT on `locations` and `environments` to build the node
+identity, in addition to the captured storage and lock tables. Check the API
+runtime's database target before running the task.
 
 ```sh
 umask 077
 mkdir -m 700 inventory-private
-ruby capture_db.rb --node-id NODE_ID \
-  --defaults-file /private/path/reader.cnf \
-  --output inventory-private/db.jsonl
+./capture_db.rb --node-id NODE_ID --output inventory-private/db.jsonl
 ```
 
-The client option file must be a regular file with no group or other access.
 The collector selects every backup pool (`role = 2`) on that exact node. It
 captures the node name and FQDN, pool state, datasets in pools, trees,
 branches, snapshots, snapshot placements, clone rows, confirmation states,
 reference counts and scoped resource and maintenance locks. It omits free-text
-maintenance reasons. All queries run on one connection in a repeatable-read,
-read-only consistent snapshot. The client streams rows and cannot reconnect
-mid-transaction. The artifact records the observation window.
-An empty pool selection or failed query leaves no output file.
+maintenance reasons. Model relations fetch rows in bounded batches without
+filtering confirmation states. The collector pins one ActiveRecord connection,
+sets `REPEATABLE READ` for the next transaction, starts a read-only consistent
+InnoDB snapshot, checks that the physical connection and DB connection ID do
+not change, and ends the observation with `ROLLBACK`. It uses scalar metadata
+queries for the DB server's UTC clock, connection ID and previous statement
+timeout; application rows are read only through model relations. It restores
+the session statement timeout after capture. Individual DB statements are
+limited to 30 seconds and the whole capture to 15 minutes; an overrun aborts
+the private temporary output. The API runtime must not start another
+transaction or switch connections during this task. The `observation` record
+contains server start/end UTC times and collector start/end UTC times; the
+artifact header/trailer include file creation and completion. An empty pool
+selection, failed query, timeout, or connection replacement leaves no output
+file.
 
 ## Capture ZFS
 
