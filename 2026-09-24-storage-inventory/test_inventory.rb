@@ -314,10 +314,135 @@ class InventoryTest < Minitest::Test
     refute_includes codes, 'indeterminate_branch_origin'
   end
 
-  def test_reference_count_mismatch_is_reported
+  def test_reference_count_below_scoped_minimum_is_reported
     db = db_records
-    db.find { |type, _| type == 'snapshot_in_pool' }[1]['reference_count'] = 0
-    assert_includes compare(db).map { |f| f['code'] }, 'reference_count_mismatch'
+    db << ['snapshot_in_branch', { 'id' => 71, 'branch_id' => 40,
+                                   'snapshot_in_pool_id' => 60,
+                                   'snapshot_in_pool_in_branch_id' => 70,
+                                   'confirmed' => 1 }]
+    finding = compare(db).find { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+
+    assert_equal({ id: 60, stored: 1, scoped_dependent_entries: 1,
+                   scoped_clone_rows: 1, scoped_minimum: 2 }, finding['details'])
+  end
+
+  def test_reference_count_above_scoped_minimum_is_inconclusive_diagnostic
+    db = db_records
+    db.find { |type, _| type == 'snapshot_in_pool' }[1]['reference_count'] = 2
+
+    assert_includes compare(db),
+                    { 'code' => 'reference_count_above_scoped_minimum',
+                      'details' => { id: 60, stored: 2, scoped_dependent_entries: 0,
+                                     scoped_clone_rows: 1, scoped_minimum: 1 } }
+  end
+
+  def test_parent_absent_from_node_capture_is_unresolved
+    db = db_records
+    db.find { |type, _| type == 'snapshot_in_branch' }[1]['snapshot_in_pool_in_branch_id'] = 999
+
+    findings = compare(db)
+    assert_includes findings,
+                    { 'code' => 'unresolved_snapshot_parent',
+                      'details' => { id: 70, parent_id: 999, reason: 'absent_from_node_capture' } }
+    refute findings.any? { |row| row['code'] == 'broken_db_link' &&
+                               row['details'][:type] == 'snapshot_parent' }
+  end
+
+  def test_present_parent_with_broken_local_link_is_reported_separately
+    db = db_records
+    db.find { |type, _| type == 'snapshot_in_branch' }[1]['snapshot_in_pool_id'] = 999
+    db << ['snapshot_in_branch', { 'id' => 71, 'branch_id' => 40,
+                                   'snapshot_in_pool_id' => 60,
+                                   'snapshot_in_pool_in_branch_id' => 70,
+                                   'confirmed' => 1 }]
+
+    findings = compare(db)
+    assert_includes findings, { 'code' => 'broken_db_link',
+                                'details' => { type: 'snapshot_in_branch', id: 70 } }
+    refute findings.any? { |row| row['code'] == 'unresolved_snapshot_parent' &&
+                               row['details'][:id] == 71 }
+  end
+
+  def test_nonhead_tree_without_head_branch_is_expected
+    db = db_records
+    db << ['tree', { 'id' => 31, 'dataset_in_pool_id' => 20,
+                     'index' => 2, 'head' => 0, 'confirmed' => 1 }]
+    db << ['branch', { 'id' => 41, 'dataset_tree_id' => 31,
+                       'index' => 1, 'name' => 'older', 'head' => 0, 'confirmed' => 1 }]
+
+    unexpected = compare(db).select do |row|
+      %w[branch_head_count nonhead_tree_branch_head].include?(row['code']) &&
+        row['details'][:id] == 31
+    end
+    assert_empty unexpected
+  end
+
+  def test_nonhead_tree_with_head_branch_is_reported
+    db = db_records
+    db << ['tree', { 'id' => 31, 'dataset_in_pool_id' => 20,
+                     'index' => 2, 'head' => 0, 'confirmed' => 1 }]
+    db << ['branch', { 'id' => 41, 'dataset_tree_id' => 31,
+                       'index' => 1, 'name' => 'older', 'head' => 1, 'confirmed' => 1 }]
+
+    assert_includes compare(db),
+                    { 'code' => 'nonhead_tree_branch_head',
+                      'details' => { id: 31, head_branch_count: 1 } }
+  end
+
+  def test_populated_headless_backup_dip_is_diagnostic
+    db = db_records
+    db.find { |type, _| type == 'tree' }[1]['head'] = 0
+    db.find { |type, _| type == 'branch' }[1]['head'] = 0
+
+    findings = compare(db)
+    assert_includes findings,
+                    { 'code' => 'headless_backup_dataset_in_pool',
+                      'details' => { id: 20, tree_count: 1, branch_count: 1,
+                                     snapshot_entry_count: 1 } }
+    refute findings.any? { |row| row['code'] == 'tree_head_count' && row['details'][:id] == 20 }
+  end
+
+  def test_headless_backup_dip_without_snapshot_entries_reports_zero
+    db = db_records
+    db.find { |type, _| type == 'tree' }[1]['head'] = 0
+    db.find { |type, _| type == 'branch' }[1]['head'] = 0
+    db.reject! { |type, _| type == 'snapshot_in_branch' }
+
+    assert_includes compare(db),
+                    { 'code' => 'headless_backup_dataset_in_pool',
+                      'details' => { id: 20, tree_count: 1, branch_count: 1,
+                                     snapshot_entry_count: 0 } }
+  end
+
+  def test_multiple_tree_heads_remain_invariant_failure
+    db = db_records
+    db << ['tree', { 'id' => 31, 'dataset_in_pool_id' => 20,
+                     'index' => 2, 'head' => 1, 'confirmed' => 1 }]
+    db << ['branch', { 'id' => 41, 'dataset_tree_id' => 31,
+                       'index' => 1, 'name' => 'other', 'head' => 1, 'confirmed' => 1 }]
+
+    assert_includes compare(db),
+                    { 'code' => 'tree_head_count',
+                      'details' => { id: 20, count: 2, expected: 1 } }
+  end
+
+  def test_head_tree_without_head_branch_remains_invariant_failure
+    db = db_records
+    db.find { |type, _| type == 'branch' }[1]['head'] = 0
+
+    assert_includes compare(db),
+                    { 'code' => 'branch_head_count',
+                      'details' => { id: 30, count: 0, expected: 1 } }
+  end
+
+  def test_head_tree_with_multiple_head_branches_remains_invariant_failure
+    db = db_records
+    db << ['branch', { 'id' => 41, 'dataset_tree_id' => 30,
+                       'index' => 2, 'name' => 'other', 'head' => 1, 'confirmed' => 1 }]
+
+    assert_includes compare(db),
+                    { 'code' => 'branch_head_count',
+                      'details' => { id: 30, count: 2, expected: 1 } }
   end
 
   def test_ambiguous_parent_pointer_is_not_treated_as_a_match

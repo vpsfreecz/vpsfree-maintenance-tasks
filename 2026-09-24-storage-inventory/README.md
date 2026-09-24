@@ -113,19 +113,43 @@ ruby compare.rb --db inventory-private/db.jsonl \
 
 Every artifact is version 2 JSON Lines with a count and SHA-256 trailer. The
 checksum covers the header, records and trailer metadata, including scope and
-volatility. Version 1 captures must be recaptured. The
-scripts create files with mode `0600`, refuse to overwrite an existing output,
-and publish only a complete capture or report. The comparator checks both
+volatility. Version 1 captures must be recaptured. Existing version 2 captures
+can be compared again without recapturing; regenerate reports because the
+finding codes and their interpretation below have changed. Older reports keep
+their original findings and checksum. The scripts create files with mode
+`0600`, refuse to overwrite an existing output, and publish only a complete
+capture or report. The comparator checks both
 checksums and the exact root set before comparing exact paths. Findings include
-missing and untracked ZFS objects, wrong object types, broken DB links,
+missing and untracked ZFS objects, wrong object types, local broken DB links,
 confirmation and head state, clone/origin inconsistencies, holds, deferred
-destruction, locks and scan volatility. A backup branch's DB parent-entry
-pointers predict its physical ZFS origin only when every pointer resolves to
-one snapshot on another branch. Ambiguous pointers produce an indeterminate
-finding. The comparator also checks the expected origin's `clones` property
-and compares each `reference_count` with its DB dependent-entry and clone-row
-counts. These counts are diagnostic and never decide deletion eligibility.
-A matching report also cannot prove that
+destruction, locks and scan volatility.
+
+Only a head tree must have exactly one head branch (`branch_head_count`). A
+nonhead tree has no branch-head cardinality requirement;
+`nonhead_tree_branch_head` records any flagged branches there as a diagnostic.
+A backup dataset-in-pool with zero head trees is reported as
+`headless_backup_dataset_in_pool`, with tree, branch and
+snapshot-entry counts. This is a diagnostic state, possibly caused by head
+detachment, even when snapshots remain. Multiple head trees still produce
+`tree_head_count` and violate the one-head invariant. A backup branch's DB
+parent-entry pointers predict its physical ZFS origin only when every pointer
+resolves to one snapshot on another branch. A parent ID absent from this
+node-scoped capture produces `unresolved_snapshot_parent`; it may refer to an
+out-of-scope row or be missing in the full DB, which this inventory cannot
+distinguish. It is not reported as a broken foreign key. Ambiguous pointers
+produce `indeterminate_branch_origin`. The comparator also checks the expected
+origin's `clones` property.
+
+The count of captured incoming dependent entries plus captured clone rows is
+only a lower bound for each `snapshot_in_pool.reference_count`: incoming
+references from other pools may be outside this capture. A stored count below
+that bound produces `reference_count_below_scoped_minimum`, with the counted
+components and is the stronger discrepancy. A higher count produces
+`reference_count_above_scoped_minimum`, an explicitly inconclusive follow-up
+finding because out-of-scope references may explain the difference. Equality
+is also inconclusive; this report cannot validate the complete reference
+count. Neither finding decides deletion eligibility. A matching report also
+cannot prove that
 the two live systems matched at one instant: their observation windows differ.
 Untracked objects can include pool infrastructure or parent datasets; classify
 them from the captured paths before drawing conclusions.

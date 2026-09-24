@@ -85,7 +85,9 @@ module StorageInventory
         base = path_for_branch(branch, index, pools)
         expect_path("#{base}@#{snap['name']}", 'snapshot_in_branch', sipb['id']) if base
         parent = sipb['snapshot_in_pool_in_branch_id']
-        finding('broken_db_link', type: 'snapshot_parent', id: sipb['id'], parent_id: parent) if
+        # The parent may belong to a pool outside this node-scoped capture.
+        finding('unresolved_snapshot_parent', id: sipb['id'], parent_id: parent,
+                reason: 'absent_from_node_capture') if
           parent && !index['snapshot_in_branch'].key?(parent)
       end
       build_branch_origin_evidence(index, pools)
@@ -165,15 +167,27 @@ module StorageInventory
     def check_heads(index)
       trees_by_dip = index['tree'].values.group_by { |r| r['dataset_in_pool_id'] }
       branches_by_tree = index['branch'].values.group_by { |r| r['dataset_tree_id'] }
+      entries_by_branch = index['snapshot_in_branch'].values.group_by { |r| r['branch_id'] }
       index['dataset_in_pool'].each_value do |dip|
         trees = trees_by_dip.fetch(dip['id'], [])
-        finding('tree_head_count', id: dip['id'], count: trees.count { |r| r['head'] == 1 }) if
-          trees.count { |r| r['head'] == 1 } != 1
+        head_count = trees.count { |r| r['head'] == 1 }
+        if head_count.zero?
+          branches = trees.flat_map { |tree| branches_by_tree.fetch(tree['id'], []) }
+          entry_count = branches.sum { |branch| entries_by_branch.fetch(branch['id'], []).length }
+          finding('headless_backup_dataset_in_pool', id: dip['id'], tree_count: trees.length,
+                  branch_count: branches.length, snapshot_entry_count: entry_count)
+        elsif head_count > 1
+          finding('tree_head_count', id: dip['id'], count: head_count, expected: 1)
+        end
       end
       index['tree'].each_value do |tree|
         branches = branches_by_tree.fetch(tree['id'], [])
-        finding('branch_head_count', id: tree['id'], count: branches.count { |r| r['head'] == 1 }) if
-          branches.count { |r| r['head'] == 1 } != 1
+        head_count = branches.count { |r| r['head'] == 1 }
+        if tree['head'] == 1
+          finding('branch_head_count', id: tree['id'], count: head_count, expected: 1) if head_count != 1
+        elsif head_count.positive?
+          finding('nonhead_tree_branch_head', id: tree['id'], head_branch_count: head_count)
+        end
       end
     end
 
@@ -222,10 +236,15 @@ module StorageInventory
       index['snapshot_in_pool'].each_value do |sip|
         entries = dependent_entries[sip['id']]
         clones = clone_counts.fetch(sip['id'], []).length
-        expected = entries + clones
-        next if sip['reference_count'] == expected
-        finding('reference_count_mismatch', id: sip['id'], stored: sip['reference_count'],
-                dependent_entries: entries, clone_rows: clones, expected: expected)
+        # Incoming references from other pools are absent here.
+        minimum = entries + clones
+        stored = sip['reference_count']
+        next if stored == minimum
+        code = stored < minimum ? 'reference_count_below_scoped_minimum' :
+                                  'reference_count_above_scoped_minimum'
+        finding(code, id: sip['id'], stored: stored,
+                scoped_dependent_entries: entries, scoped_clone_rows: clones,
+                scoped_minimum: minimum)
       end
     end
 
