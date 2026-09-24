@@ -137,20 +137,30 @@ resolves to one snapshot on another branch. A parent ID absent from this
 node-scoped capture produces `unresolved_snapshot_parent`; it may refer to an
 out-of-scope row or be missing in the full DB, which this inventory cannot
 distinguish. It is not reported as a broken foreign key. Ambiguous pointers
-produce `indeterminate_branch_origin`. The comparator also checks the expected
-origin's `clones` property.
+produce `indeterminate_branch_origin`. A physical origin or reciprocal ZFS
+clone edge is reported as `unrepresented_branch_origin` or
+`unrepresented_branch_clone` only when the branch has no DB parent pointers.
+Unresolved or ambiguous pointers already provide DB dependency evidence, so
+those physical edges remain indeterminate rather than unrepresented. The
+comparator also checks the expected origin's `clones` property when the DB
+source resolves.
 
-The count of captured incoming dependent entries plus captured clone rows is
-only a lower bound for each `snapshot_in_pool.reference_count`: incoming
-references from other pools may be outside this capture. A stored count below
-that bound produces `reference_count_below_scoped_minimum`, with the counted
-components and is the stronger discrepancy. A higher count produces
+Only confirmed (`confirmed = 1`) incoming snapshot entries whose parent entry
+is also confirmed, plus confirmed clone rows, form the scoped minimum for each
+`snapshot_in_pool.reference_count`. Pending-create (`0`) and pending-destroy
+(`2`) rows do not raise that firm minimum: their counter updates may not have
+completed.
+`reference_count_pending_references` reports their counts as inconclusive
+context, even when the stored count equals the firm minimum. Incoming
+references from other pools may also be outside this capture. A stored count
+below the firm minimum produces `reference_count_below_scoped_minimum`, with
+the counted components, and is the stronger discrepancy. A higher count produces
 `reference_count_above_scoped_minimum`, an explicitly inconclusive follow-up
-finding because out-of-scope references may explain the difference. Equality
-is also inconclusive; this report cannot validate the complete reference
-count. Neither finding decides deletion eligibility. A matching report also
-cannot prove that
-the two live systems matched at one instant: their observation windows differ.
+finding because pending or out-of-scope references may explain the difference.
+Equality is also inconclusive; this report cannot validate the complete
+reference count. Neither finding decides deletion eligibility. A matching
+report also cannot prove that the two live systems matched at one instant:
+their observation windows differ.
 Untracked objects can include pool infrastructure or parent datasets; classify
 them from the captured paths before drawing conclusions.
 

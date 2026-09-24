@@ -194,6 +194,7 @@ module StorageInventory
     def build_branch_origin_evidence(index, pools)
       @branch_paths = {}
       @branch_origins = {}
+      @pointer_free_branch_paths = {}
       entries_by_branch = index['snapshot_in_branch'].values.group_by { |r| r['branch_id'] }
       index['branch'].each_value do |branch|
         branch_path = path_for_branch(branch, index, pools)
@@ -201,7 +202,10 @@ module StorageInventory
         @branch_paths[branch_path] = branch['id']
         parent_ids = entries_by_branch.fetch(branch['id'], [])
                                       .filter_map { |entry| entry['snapshot_in_pool_in_branch_id'] }.uniq
-        next if parent_ids.empty?
+        if parent_ids.empty?
+          @pointer_free_branch_paths[branch_path] = true
+          next
+        end
 
         candidates = []
         unresolved = false
@@ -227,24 +231,36 @@ module StorageInventory
     end
 
     def check_reference_counts(index)
-      dependent_entries = Hash.new(0)
+      dependent_entries = Hash.new { |hash, key| hash[key] = { confirmed: 0, pending: 0 } }
       index['snapshot_in_branch'].each_value do |entry|
         parent = index['snapshot_in_branch'][entry['snapshot_in_pool_in_branch_id']]
-        dependent_entries[parent['snapshot_in_pool_id']] += 1 if parent
+        next unless parent
+        counts = dependent_entries[parent['snapshot_in_pool_id']]
+        state = entry['confirmed'] == 1 && parent['confirmed'] == 1 ? :confirmed : :pending
+        counts[state] += 1
       end
       clone_counts = index['clone'].values.group_by { |r| r['snapshot_in_pool_id'] }
       index['snapshot_in_pool'].each_value do |sip|
         entries = dependent_entries[sip['id']]
-        clones = clone_counts.fetch(sip['id'], []).length
-        # Incoming references from other pools are absent here.
-        minimum = entries + clones
+        clones = clone_counts.fetch(sip['id'], [])
+        confirmed_clones = clones.count { |clone| clone['confirmed'] == 1 }
+        pending_clones = clones.length - confirmed_clones
+        # Pending rows may precede their counter updates. Other pools are absent.
+        minimum = entries[:confirmed] + confirmed_clones
         stored = sip['reference_count']
+        details = {
+          id: sip['id'], stored: stored,
+          confirmed_scoped_dependent_entries: entries[:confirmed],
+          confirmed_scoped_clone_rows: confirmed_clones,
+          pending_dependent_entries: entries[:pending], pending_clone_rows: pending_clones,
+          scoped_minimum: minimum
+        }
+        finding('reference_count_pending_references', details) if
+          entries[:pending].positive? || pending_clones.positive?
         next if stored == minimum
         code = stored < minimum ? 'reference_count_below_scoped_minimum' :
                                   'reference_count_above_scoped_minimum'
-        finding(code, id: sip['id'], stored: stored,
-                scoped_dependent_entries: entries, scoped_clone_rows: clones,
-                scoped_minimum: minimum)
+        finding(code, details)
       end
     end
 
@@ -268,8 +284,7 @@ module StorageInventory
         clones = snapshot['clones'] == '-' ? [] : snapshot['clones'].to_s.split(',')
         finding('db_zfs_clone_edge_missing', snapshot: source, branch: branch_path) unless clones.include?(branch_path)
       end
-      @branch_paths.each_key do |branch_path|
-        next if @branch_origins.key?(branch_path)
+      @pointer_free_branch_paths.each_key do |branch_path|
         branch = objects[branch_path]
         finding('unrepresented_branch_origin', branch: branch_path, origin: branch['origin']) if
           branch && branch['origin']
@@ -287,7 +302,7 @@ module StorageInventory
           clones = obj['clones'] == '-' ? [] : obj['clones'].split(',')
           clones.each do |clone|
             finding('unrepresented_branch_clone', snapshot: path, branch: clone) if
-              @branch_paths.key?(clone) && @branch_origins[clone] != path
+              @pointer_free_branch_paths.key?(clone)
             if objects[clone]
               finding('clone_edge_mismatch', snapshot: path, clone: clone) unless objects[clone]['origin'] == path
             else

@@ -10,6 +10,7 @@ class InventoryTest < Minitest::Test
   ROOT = 'tank/backups'.freeze
   SNAP = "#{ROOT}/users/42/tree.1/branch-main.1@daily".freeze
   CLONE = "#{ROOT}/vpsadmin/mount/42.daily".freeze
+  SOURCE_SNAPSHOT = "#{ROOT}@seed".freeze
 
   class FakeConnection
     attr_reader :commands
@@ -178,6 +179,16 @@ class InventoryTest < Minitest::Test
     end
   end
 
+  def zfs_with_reciprocal_branch_origin
+    rows = zfs_records
+    branch_path = SNAP.split('@', 2).first
+    rows.find { |_type, row| row['name'] == branch_path }[1]['origin'] = SOURCE_SNAPSHOT
+    rows << ['zfs_object', { 'name' => SOURCE_SNAPSHOT, 'type' => 'snapshot',
+                             'guid' => '800', 'origin' => nil, 'clones' => branch_path,
+                             'userrefs' => '0', 'defer_destroy' => 'off' }]
+    rows
+  end
+
   def compare(db_rows = db_records, zfs_rows = zfs_records, volatile: false)
     db = StorageInventory::Reader.new(capture('db.jsonl', 'db', { 'node_id' => 2 }, db_rows), 'db')
     zfs = StorageInventory::Reader.new(capture('zfs.jsonl', 'zfs', { 'roots' => [ROOT] }, zfs_rows,
@@ -289,6 +300,8 @@ class InventoryTest < Minitest::Test
     codes = compare(db, zfs).map { |f| f['code'] }
     assert_includes codes, 'db_zfs_branch_origin_mismatch'
     assert_includes codes, 'db_zfs_clone_edge_missing'
+    refute_includes codes, 'unrepresented_branch_origin'
+    refute_includes codes, 'unrepresented_branch_clone'
   end
 
   def test_db_parent_edge_accepts_matching_physical_origin
@@ -322,8 +335,9 @@ class InventoryTest < Minitest::Test
                                    'confirmed' => 1 }]
     finding = compare(db).find { |row| row['code'] == 'reference_count_below_scoped_minimum' }
 
-    assert_equal({ id: 60, stored: 1, scoped_dependent_entries: 1,
-                   scoped_clone_rows: 1, scoped_minimum: 2 }, finding['details'])
+    assert_equal({ id: 60, stored: 1, confirmed_scoped_dependent_entries: 1,
+                   confirmed_scoped_clone_rows: 1, pending_dependent_entries: 0,
+                   pending_clone_rows: 0, scoped_minimum: 2 }, finding['details'])
   end
 
   def test_reference_count_above_scoped_minimum_is_inconclusive_diagnostic
@@ -332,8 +346,90 @@ class InventoryTest < Minitest::Test
 
     assert_includes compare(db),
                     { 'code' => 'reference_count_above_scoped_minimum',
-                      'details' => { id: 60, stored: 2, scoped_dependent_entries: 0,
-                                     scoped_clone_rows: 1, scoped_minimum: 1 } }
+                      'details' => { id: 60, stored: 2,
+                                     confirmed_scoped_dependent_entries: 0,
+                                     confirmed_scoped_clone_rows: 1,
+                                     pending_dependent_entries: 0, pending_clone_rows: 0,
+                                     scoped_minimum: 1 } }
+  end
+
+  def test_pending_create_clone_does_not_raise_firm_reference_minimum
+    db = db_records
+    db.find { |type, _| type == 'clone' }[1]['confirmed'] = 0
+    db.find { |type, _| type == 'snapshot_in_pool' }[1]['reference_count'] = 0
+
+    findings = compare(db)
+    refute findings.any? { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+    assert_includes findings,
+                    { 'code' => 'reference_count_pending_references',
+                      'details' => { id: 60, stored: 0,
+                                     confirmed_scoped_dependent_entries: 0,
+                                     confirmed_scoped_clone_rows: 0,
+                                     pending_dependent_entries: 0, pending_clone_rows: 1,
+                                     scoped_minimum: 0 } }
+  end
+
+  def test_pending_destroy_clone_does_not_raise_firm_reference_minimum
+    db = db_records
+    db.find { |type, _| type == 'clone' }[1]['confirmed'] = 2
+    db.find { |type, _| type == 'snapshot_in_pool' }[1]['reference_count'] = 0
+
+    findings = compare(db)
+    refute findings.any? { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+    assert_includes findings.map { |row| row['code'] }, 'reference_count_pending_references'
+  end
+
+  def test_pending_clone_can_explain_above_minimum_diagnostic
+    db = db_records
+    db.find { |type, _| type == 'clone' }[1]['confirmed'] = 0
+
+    codes = compare(db).map { |row| row['code'] }
+    assert_includes codes, 'reference_count_pending_references'
+    assert_includes codes, 'reference_count_above_scoped_minimum'
+    refute_includes codes, 'reference_count_below_scoped_minimum'
+  end
+
+  def test_pending_snapshot_entry_does_not_raise_firm_reference_minimum
+    db = db_records
+    db << ['snapshot_in_branch', { 'id' => 71, 'branch_id' => 40,
+                                   'snapshot_in_pool_id' => 60,
+                                   'snapshot_in_pool_in_branch_id' => 70,
+                                   'confirmed' => 0 }]
+
+    findings = compare(db)
+    refute findings.any? { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+    assert_includes findings,
+                    { 'code' => 'reference_count_pending_references',
+                      'details' => { id: 60, stored: 1,
+                                     confirmed_scoped_dependent_entries: 0,
+                                     confirmed_scoped_clone_rows: 1,
+                                     pending_dependent_entries: 1, pending_clone_rows: 0,
+                                     scoped_minimum: 1 } }
+  end
+
+  def test_pending_destroy_snapshot_entry_does_not_raise_firm_reference_minimum
+    db = db_records
+    db << ['snapshot_in_branch', { 'id' => 71, 'branch_id' => 40,
+                                   'snapshot_in_pool_id' => 60,
+                                   'snapshot_in_pool_in_branch_id' => 70,
+                                   'confirmed' => 2 }]
+
+    findings = compare(db)
+    refute findings.any? { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+    assert_includes findings.map { |row| row['code'] }, 'reference_count_pending_references'
+  end
+
+  def test_confirmed_child_of_pending_parent_is_not_a_firm_reference
+    db = db_records
+    db.find { |type, _| type == 'snapshot_in_branch' }[1]['confirmed'] = 0
+    db << ['snapshot_in_branch', { 'id' => 71, 'branch_id' => 40,
+                                   'snapshot_in_pool_id' => 60,
+                                   'snapshot_in_pool_in_branch_id' => 70,
+                                   'confirmed' => 1 }]
+
+    findings = compare(db)
+    refute findings.any? { |row| row['code'] == 'reference_count_below_scoped_minimum' }
+    assert_includes findings.map { |row| row['code'] }, 'reference_count_pending_references'
   end
 
   def test_parent_absent_from_node_capture_is_unresolved
@@ -346,6 +442,30 @@ class InventoryTest < Minitest::Test
                       'details' => { id: 70, parent_id: 999, reason: 'absent_from_node_capture' } }
     refute findings.any? { |row| row['code'] == 'broken_db_link' &&
                                row['details'][:type] == 'snapshot_parent' }
+  end
+
+  def test_unresolved_parent_does_not_claim_physical_origin_is_unrepresented
+    db = db_records
+    db.find { |type, _| type == 'snapshot_in_branch' }[1]['snapshot_in_pool_in_branch_id'] = 999
+
+    findings = compare(db, zfs_with_reciprocal_branch_origin)
+    codes = findings.map { |row| row['code'] }
+    assert_includes codes, 'unresolved_snapshot_parent'
+    assert_includes codes, 'indeterminate_branch_origin'
+    refute_includes codes, 'unrepresented_branch_origin'
+    refute_includes codes, 'unrepresented_branch_clone'
+  end
+
+  def test_pointer_free_branch_keeps_unrepresented_origin_and_clone_findings
+    branch_path = SNAP.split('@', 2).first
+
+    findings = compare(db_records, zfs_with_reciprocal_branch_origin)
+    assert_includes findings,
+                    { 'code' => 'unrepresented_branch_origin',
+                      'details' => { branch: branch_path, origin: SOURCE_SNAPSHOT } }
+    assert_includes findings,
+                    { 'code' => 'unrepresented_branch_clone',
+                      'details' => { snapshot: SOURCE_SNAPSHOT, branch: branch_path } }
   end
 
   def test_present_parent_with_broken_local_link_is_reported_separately
@@ -464,7 +584,8 @@ class InventoryTest < Minitest::Test
     zfs.find { |_type, row| row['name'] == SNAP }[1]['clones'] = "#{CLONE},#{old_branch}"
     codes = compare(db, zfs).map { |f| f['code'] }
     assert_includes codes, 'indeterminate_branch_origin'
-    assert_includes codes, 'unrepresented_branch_origin'
+    refute_includes codes, 'unrepresented_branch_origin'
+    refute_includes codes, 'unrepresented_branch_clone'
   end
 
   def test_trailer_volatility_is_integrity_checked
