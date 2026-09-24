@@ -1,4 +1,5 @@
 require 'optparse'
+require 'pathname'
 require_relative 'inventory'
 
 module StorageInventory
@@ -24,13 +25,15 @@ module StorageInventory
     def self.cli(argv)
       options = {}
       OptionParser.new do |o|
-        o.banner = 'Usage: capture_db.rb --node-id ID --output capture.jsonl'
+        o.banner = 'Usage: capture_db.rb --node-id ID --output /absolute/path/capture.jsonl'
         o.on('--node-id ID', Integer) { |v| options[:node_id] = v }
         o.on('--output PATH') { |v| options[:output] = v }
       end.parse!(argv)
       raise ArgumentError, 'unexpected arguments' unless argv.empty?
       raise ArgumentError, 'positive --node-id required' unless options[:node_id].to_i.positive?
       raise ArgumentError, '--output required' unless options[:output]
+      raise ArgumentError, '--output must be an absolute path' unless
+        Pathname.new(options[:output]).absolute?
 
       require 'vpsadmin'
       ActiveRecord::Base.connection_pool.with_connection do |connection|
@@ -137,8 +140,11 @@ module StorageInventory
         branch_ids << row['id']
       end
 
+      snapshot_ids = []
       capture_scoped(writer, 'snapshot', :snapshot, :dataset_id, dataset_ids,
-        %i[id dataset_id name history_id confirmed created_at])
+        %i[id dataset_id name history_id confirmed created_at]) do |row|
+        snapshot_ids << row['id']
+      end
       sip_ids = []
       capture_scoped(writer, 'snapshot_in_pool', :snapshot_in_pool, :dataset_in_pool_id, dip_ids,
         %i[id dataset_in_pool_id snapshot_id reference_count mount_id confirmed]) do |row|
@@ -158,6 +164,7 @@ module StorageInventory
 
       scopes = {
         'Node' => [@node_id], 'Pool' => pool_ids, 'Dataset' => dataset_ids,
+        'Snapshot' => snapshot_ids,
         'DatasetInPool' => dip_ids, 'DatasetTree' => tree_ids, 'Branch' => branch_ids,
         'SnapshotInPool' => sip_ids, 'SnapshotInPoolInBranch' => sipb_ids,
         'SnapshotInPoolClone' => clone_ids

@@ -431,6 +431,28 @@ class InventoryTest < Minitest::Test
     assert_equal [50], records.fetch('snapshot').map { |row| row.fetch('id') }
   end
 
+  def test_db_snapshot_resource_lock_reaches_comparison_findings
+    connection = FakeConnection.new
+    models = fake_db_models(connection)
+    models[:resource_lock].rows << { id: 91, resource: 'Snapshot', row_id: 50,
+                                     locked_by_id: 12, locked_by_type: 'TransactionChain' }
+    output = File.join(@dir, 'db.jsonl')
+
+    StorageInventory::DbCapture.new(node_id: 2, output: output,
+      connection: connection, models: models).run
+    db = StorageInventory::Reader.new(output, 'db')
+    zfs = StorageInventory::Reader.new(capture('zfs.jsonl', 'zfs',
+      { 'roots' => [ROOT] }, zfs_records, 'volatile' => false), 'zfs')
+
+    assert_includes db.records.fetch('resource_lock'),
+                    { 'id' => 91, 'resource' => 'Snapshot', 'row_id' => 50,
+                      'locked_by_id' => 12, 'locked_by_type' => 'TransactionChain',
+                      'created_at' => nil, 'updated_at' => nil }
+    assert_includes StorageInventory::Comparator.new(db, zfs).run,
+                    { 'code' => 'resource_lock',
+                      'details' => { id: 91, resource: 'Snapshot', row_id: 50 } }
+  end
+
   def test_db_connection_replacement_aborts_capture
     connection = FakeConnection.new
     models = fake_db_models(connection)
@@ -476,6 +498,14 @@ class InventoryTest < Minitest::Test
   ensure
     StorageInventory::DbCapture.define_singleton_method(:cli, original_cli) if original_cli
     ARGV.replace(argv)
+  end
+
+  def test_db_cli_rejects_relative_output_before_loading_api
+    error = assert_raises(ArgumentError) do
+      StorageInventory::DbCapture.cli(['--node-id', '2', '--output', 'db.jsonl'])
+    end
+
+    assert_equal '--output must be an absolute path', error.message
   end
 
   def test_zfs_double_scan_marks_changed_guid

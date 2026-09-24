@@ -8,11 +8,15 @@ delete.
 ## Capture the database
 
 Run `capture_db.rb` in the normal vpsAdmin API Ruby environment. Its shebang
-uses `vpsadmin-api-ruby`, whose runner loads the script as the configured API
-service user. The entry point then requires `vpsadmin` and uses that runtime's
-production database configuration; `db_capture.rb` holds the importable
-collector. There is no separate client option file, password argument or
-credential override in this task. The normal API account may have write
+uses `vpsadmin-api-ruby`, whose runner resolves the script path before starting
+a transient unit as the configured API service user. That unit changes its
+working directory to the immutable API package. The script and its two local
+Ruby dependencies must be readable by that user, and `--output` must be an
+absolute path in a private directory writable by that user. The entry point
+requires `vpsadmin` and uses that runtime's production database configuration;
+`db_capture.rb` holds the importable collector. There is no separate client
+option file, password argument or credential override in this task. The normal
+API account may have write
 grants. The collector's SQL `READ ONLY` transaction is the enforced database
 write protection for this run. A dedicated SELECT-only account would require
 separate API runtime configuration, which this task does not provide. The
@@ -20,16 +24,40 @@ account also needs SELECT on `locations` and `environments` to build the node
 identity, in addition to the captured storage and lock tables. Check the API
 runtime's database target before running the task.
 
+On the API host, run these commands as root from the directory containing
+`capture_db.rb`, `db_capture.rb` and `inventory.rb`. Read the actual service
+identity from `vpsadmin-api.service`; the default user and group are both
+`vpsadmin-api`. The temporary directory is mode `0700` and owned by that
+identity, so the transient unit can create its mode `0600` capture there.
+Keep the printed capture path for the later private transfer.
+
 ```sh
+(
+set -eu
 umask 077
-mkdir -m 700 inventory-private
-./capture_db.rb --node-id NODE_ID --output inventory-private/db.jsonl
+api_user=$(systemctl show --property=User --value vpsadmin-api.service)
+api_group=$(systemctl show --property=Group --value vpsadmin-api.service)
+test -n "$api_user"
+test -n "$api_group"
+capture_dir=$(mktemp -d /var/tmp/vpsadmin-storage-inventory.XXXXXXXX)
+chown "$api_user:$api_group" "$capture_dir"
+install -o "$api_user" -g "$api_group" -m 0750 capture_db.rb "$capture_dir/capture_db.rb"
+install -o "$api_user" -g "$api_group" -m 0640 db_capture.rb inventory.rb "$capture_dir/"
+"$capture_dir/capture_db.rb" --node-id NODE_ID --output "$capture_dir/db.jsonl"
+printf 'Capture: %s\n' "$capture_dir/db.jsonl"
+)
 ```
+
+A caller-relative script path can work because the shell wrapper resolves it
+before starting the unit. A relative output path instead resolves under the
+unit's package working directory, so the DB collector rejects it before
+loading the API runtime.
 
 The collector selects every backup pool (`role = 2`) on that exact node. It
 captures the node name and FQDN, pool state, datasets in pools, trees,
 branches, snapshots, snapshot placements, clone rows, confirmation states,
-reference counts and scoped resource and maintenance locks. It omits free-text
+reference counts and scoped resource locks (including Snapshot locks), plus
+maintenance locks. It omits free-text
 maintenance reasons. Model relations fetch rows in bounded batches without
 filtering confirmation states. The collector pins one ActiveRecord connection,
 sets `REPEATABLE READ` for the next transaction, starts a read-only consistent
