@@ -1,0 +1,45 @@
+Ahoj <%= @user.login %>,
+
+v Alpine Linuxu byla zveřejněna bezpečnostní chyba ověřování heslem přes
+OpenSSH bez PAM. V některých konfiguracích umožňuje přihlášení bez znalosti
+platného hesla. Týká se účtu, který má v poli pro heslo v /etc/shadow přesně
+znak „*“, tedy nemá použitelné heslo. Pro popsaný útok je potřeba i jiný
+účet s uloženým hashem hesla a musí být zapnuté přihlašování heslem přes
+SSH. Podrobnosti najdeš zde:
+
+  https://sshhole.com/
+
+V nalezeném souboru /etc/ssh/sshd_config jsme vypnuli
+PasswordAuthentication. Změnu jsme provedli preventivně: takový zranitelný
+účet na tvé VPS vůbec nemusel existovat. Zásah neznamená, že jsme zjistili
+napadení.
+
+Změna se týká těchto tvých VPS:
+
+<% @changed_vpses.each do |vps| -%>
+  - VPS <%= vps.id %> <%= vps.hostname %>
+<% end -%>
+
+Původní konfigurace je na každé z těchto VPS uložená v souboru:
+
+  /etc/ssh/sshd_config.before-2026-11-05-disable-password-authentication
+
+Obnovením původní konfigurace můžeš přihlašování heslem znovu zapnout.
+
+Doporučujeme systém aktualizovat včetně OpenSSH a restartovat sshd, aby běžela
+aktualizovaná verze. Zkontroluj také přihlašovací a systémové logy, zejména
+neznámá úspěšná přihlášení, kvůli možnému dřívějšímu napadení.
+
+Pro přihlášení klíčem můžeš do vpsAdminu nahrát veřejný SSH klíč a potom ho
+z detailu běžící VPS do dané VPS vložit. Samotné uložení klíče do profilu ho
+do již existující VPS nenahraje. Postup najdeš zde:
+
+  https://kb.vpsfree.cz/navody/server/ssh
+
+Přihlásit se můžeš také přes vzdálenou konzoli ve vpsAdminu:
+
+  https://kb.vpsfree.cz/navody/vps/konzole
+
+S pozdravem
+
+tým vpsFree.cz

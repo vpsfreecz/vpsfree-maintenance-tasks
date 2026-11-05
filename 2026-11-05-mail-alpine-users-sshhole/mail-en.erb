@@ -1,0 +1,46 @@
+Hi <%= @user.login %>,
+
+A security issue has been disclosed in OpenSSH password authentication on
+Alpine Linux when OpenSSH runs without PAM. In some configurations, it
+allows login without knowing a valid password. It affects an account whose
+password field in /etc/shadow is exactly "*", meaning it has no usable
+password. The described attack also needs another account with a stored
+password hash and SSH password authentication enabled. Details:
+
+  https://sshhole.com/
+
+We disabled PasswordAuthentication where we found it in
+/etc/ssh/sshd_config. We made this change as a precaution: your VPS may not
+have had a vulnerable account. The change does not mean we found a
+compromise.
+
+The change applies to these VPSes:
+
+<% @changed_vpses.each do |vps| -%>
+  - VPS <%= vps.id %> <%= vps.hostname %>
+<% end -%>
+
+The original configuration is saved on each of those VPSes at:
+
+  /etc/ssh/sshd_config.before-2026-11-05-disable-password-authentication
+
+Restoring the original configuration could enable password login again.
+
+We recommend updating your system, including OpenSSH, and
+restarting sshd so it runs the updated version. Check your login and system
+logs, especially for unfamiliar successful logins, for signs of a possible
+earlier compromise.
+
+To log in with a key, you can upload your public SSH key to vpsAdmin and
+then deploy it from the details of the running VPS. Saving the key in your
+profile alone does not install it in an existing VPS. Instructions:
+
+  https://kb.vpsfree.org/manuals/server/ssh
+
+You can also log in through the remote console in vpsAdmin:
+
+  https://kb.vpsfree.org/manuals/vps/console
+
+Best regards,
+
+vpsFree.cz team
