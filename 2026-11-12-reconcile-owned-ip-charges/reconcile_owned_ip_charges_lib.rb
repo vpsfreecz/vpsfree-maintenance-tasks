@@ -368,8 +368,6 @@ module ReconcileOwnedIpCharges
     end
 
     def blockers!(targets)
-      active = TransactionChain.where(state: %i[staged queued rollbacking]).order(:id).pluck(:id)
-      raise Refused, "active chains #{active.join(',')}" unless active.empty?
       targets.each do |name, ids|
         locks = ResourceLock.where(resource: name, row_id: ids).order(:id).pluck(:id)
         raise Refused, "existing reservations #{locks.join(',')}" unless locks.empty?
@@ -451,7 +449,7 @@ module ReconcileOwnedIpCharges
       opts.on('--plan PATH', 'Explicit JSON plan; preview is read-only') { |v| options[:path] = v }
       opts.on('--json', 'Write JSON success receipts instead of tables') { options[:json] = true }
       opts.on('--apply', 'Apply the exact plan atomically during maintenance') { options[:apply] = true }
-      opts.on('--writers-quiesced', 'Attest all writers stopped and older work drained') { options[:quiesced] = true }
+      opts.on('--writers-quiesced', 'Attest writers/execution stopped and no conflicting chain running') { options[:quiesced] = true }
       opts.on('--admin-id ID', Integer, 'Administrator audit identity') { |v| options[:admin] = v }
       opts.on('-h', '--help', 'Show help') { output.puts opts; return 0 }
     end

@@ -383,11 +383,16 @@ if ENV['RECONCILE_IP_DB_TEST'] == '1'
       assert_equal before, state
     end
 
-    def test_active_chain_refuses_without_mutation
+    def test_unrelated_queued_chain_allows_repair_and_stays_unchanged
       TransactionChain.insert_all!([{ type: 'TransactionChain', name: 'synthetic_queued', size: 0, state: 1 }])
-      before = state
-      assert_raises(Tool::Refused) { @db.apply(SpecSeed.admin.id, output: StringIO.new) }
-      assert_equal before, state
+      pending = TransactionChain.order(:id).map(&:attributes)
+      before = @db.fingerprint(@db.snapshot)
+      @db.apply(SpecSeed.admin.id, output: StringIO.new)
+      assert_equal @data['ips'][0]['to_environment_id'], @ip.reload.charged_environment_id
+      assert_equal 2 * S, @use.reload.value
+      assert_equal pending, TransactionChain.order(:id).map(&:attributes)
+      assert_equal before[:quotas], @db.fingerprint(@db.snapshot)[:quotas]
+      assert_equal 0, ResourceLock.count
     end
 
     def test_later_write_failure_rolls_back_metadata_usage_audit_and_reservations

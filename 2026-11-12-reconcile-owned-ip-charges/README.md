@@ -92,19 +92,21 @@ usage row, changes an allowance or calls allocation/free chains.
 
 ## Apply and recovery
 
-Stop every API, scheduler and other IP/accounting writer, drain older transaction
-work, then stop the supervisor. Keep writers stopped through verification. The
-command does not control services. Use an administrator's numeric ID:
+Stop every API, scheduler and other IP/accounting writer, then stop the supervisor
+for the apply window. Keep writers and execution stopped through verification.
+Unrelated chains may remain pending. Verify that no conflicting chain is running
+before invocation; the command does not check active chains or control services.
+Use an administrator's numeric ID:
 
 ```sh
 ./reconcile_owned_ip_charges.rb --plan /private/path/plan.json \
   --apply --writers-quiesced --admin-id 900
 ```
 
-The flag attests this maintenance exclusion. Apply also checks active chains,
-existing reservations and undone confirmations on selected records. Failed or
-resolved work with outstanding effects remains a blocker. Resolve it through its
-original recovery procedure; do not remove someone else's reservations.
+The flag attests this maintenance exclusion. Apply checks existing reservations
+and unfinished confirmations on selected records, including failed or resolved
+work. Resolve outstanding effects through their original recovery procedure; do
+not remove someone else's reservations.
 
 Apply locks and rereads the inputs, reserves the contributing IPs, VPSes and
 user resources, recomputes the exact comparison, then writes metadata and usage
