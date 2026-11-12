@@ -12,6 +12,28 @@
 - If a script is not executable in your environment, run it with the appropriate interpreter, e.g. `ruby path/to/script.rb` or `sh path/to/script.sh`.
 - There is no global build step; tasks are standalone.
 
+## Tasks run with vpsadmin-api-ruby
+
+These rules apply only to scripts using `vpsadmin-api-ruby`, including its
+shebang. Other task runtimes retain their own launch contracts.
+
+- The packaged runner resolves the script path, removes it from `ARGV`, then uses
+  Ruby `load` without changing `$PROGRAM_NAME`. Dispatch the executable CLI
+  unconditionally; a guard based only on `$PROGRAM_NAME == __FILE__` skips it.
+  Keep reusable definitions in a separate library that can be required without
+  running the CLI or loading the application/database.
+- The runner changes CWD to the packaged API directory. Use `require_relative`
+  or `__dir__` for task-relative code/assets. Operator file arguments, such as a
+  plan path, must be absolute; resolve them before invocation. Do not try to infer
+  or restore the caller's working directory inside the task.
+- Test the real executable both directly with Ruby and with the runner's
+  `script = ARGV[0]; ARGV.shift; load script` sequence. Use an absolute script
+  path, a different CWD and absolute file arguments; check argument forwarding,
+  output and exit status. Also test that requiring the library starts no CLI or
+  application/database work and leaves `ARGV` unchanged.
+- When an executable requires a sibling library, install/update both together.
+  The existing API template dispatches at top level and needs no entrypoint guard.
+
 ## Coding Style & Naming Conventions
 - Directory names use the date-first pattern: `YYYY-MM-DD-description`.
 - Script names are `snake_case` and match the task intent.
