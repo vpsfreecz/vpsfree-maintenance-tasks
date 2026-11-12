@@ -60,6 +60,23 @@ must have one owner config and be available to the network.
 ./reconcile_owned_ip_charges.rb --plan /private/path/plan.json
 ```
 
+Human-readable output is the default, including when redirected to a file. It
+shows the full plan identity, the number of IP environment and resource usage
+changes, IP environment mappings, and resource usage before, after and delta. Amounts are exact address
+units with comma digit grouping; delta is after minus before. Technical IDs are
+not grouped. Missing environments appear as "not recorded". A prefix is one
+allocation row regardless of its size.
+
+For machine-readable success receipts with the existing fields and raw decimal
+strings, use `--json`:
+
+```sh
+./reconcile_owned_ip_charges.rb --plan /private/path/plan.json --json
+```
+
+Refusals and errors remain plain text on stderr in both modes. Help is plain
+text and starts no application or database work, including `--json --help`.
+
 Preview performs reads only and takes no reservations. It verifies complete
 owned plus disjoint userless VPS inventory for exactly the listed groups, counting
 each prefix by full size once. Host addresses add no quota use. Assigned export
@@ -96,8 +113,11 @@ Model audit behavior remains enabled. Postconditions verify pointers, usage,
 allowances and unrelated rows from the snapshot. A failure before commit rolls
 back the batch. There is no automatic retry or rollback switch.
 
-Save the scalar output privately. `validated_before_commit` includes the normalized
-plan SHA256 and exact pre/post values; only `committed` reports completion. A lost
+Save the output privately. Preview says no database changes were made. The
+validated-before-commit receipt says the transaction is not committed; only the
+committed receipt reports completion. Every stage includes the full plan SHA256
+and exact pre/post values. With `--json`, the existing `status` values are
+`preview`, `validated_before_commit` and `committed`. A lost
 connection or output failure can make the outcome uncertain. Under fresh exclusion,
 inspect exact rows against both states before retrying. A complete post-state needs
 no repeat apply; a mixed or changed state needs operator inspection. Repeated apply

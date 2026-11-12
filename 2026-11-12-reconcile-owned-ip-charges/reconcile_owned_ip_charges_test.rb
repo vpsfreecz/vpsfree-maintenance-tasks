@@ -157,6 +157,97 @@ class ReconcilePlanTest < Minitest::Test
     assert_equal 0, Tool.run(['--help'], output: StringIO.new)
     assert_equal 1, Tool.run(['--plan', '/nonexistent', '--apply'], error: StringIO.new)
   end
+  def receipt(status = 'preview')
+    plan = Tool::Plan.parse(JSON.generate(@data))
+    { status:, plan: plan.identity, ips: plan.ips, usage_changes: plan.usage_changes }
+  end
+
+  def render(payload, json: false)
+    output = StringIO.new
+    Tool::Printer.new(output, json:).emit(payload)
+    output.string
+  end
+
+  def columns_for(output, id)
+    output.lines.find { |line| line.match?(/\A\s*#{id}\s/) }.strip.split(/\s{2,}/)
+  end
+
+  def test_human_receipt_has_all_technical_fields_and_exact_values
+    payload = receipt
+    text = render(payload)
+    assert_includes text, "Plan: #{payload[:plan]}"
+    assert_includes text, 'IP environment changes: 1; resource usage changes: 2'
+    assert_includes text, 'Amounts are exact address units; delta = after - before.'
+    assert_equal ['51', '10', '2', '/48', '1,208,925,819,614,629,174,706,176', 'not recorded', '1'], columns_for(text, 51)
+    positive = columns_for(text, 40)
+    assert_equal ['40', '10', '1', 'ipv6'], positive[0, 4]
+    assert_equal [S, S + L, L], positive[4, 3].map { |n| Integer(n.delete(','), 10) }
+    assert positive.last.start_with?('+')
+    assert_equal ['41', '11', '2', 'ipv6', '7', '0', '-7'], columns_for(text, 41)
+  end
+
+  def test_human_receipt_stage_meanings
+    preview = render(receipt('preview'))
+    assert_equal 'Preview: no database changes were made.', preview.lines.first.chomp
+    refute_includes preview, 'Committed:'
+    validated = render(receipt('validated_before_commit'))
+    assert_equal 'Validated before commit: the transaction has not committed yet.', validated.lines.first.chomp
+    refute_includes validated, 'Committed:'
+    assert_equal 'Committed: database changes saved.', render(receipt('committed')).lines.first.chomp
+  end
+
+  def test_empty_sections_and_zero_delta_are_explicit
+    payload = receipt
+    payload[:ips] = []; payload[:usage_changes] = []
+    text = render(payload)
+    assert_includes text, 'IP environment changes: 0; resource usage changes: 0'
+    assert_includes text, 'No IP environment changes.'
+    assert_includes text, 'No resource usage changes.'
+    payload[:usage_changes] = [{ id: 42, config_id: 10, environment_id: 1, resource: 'ipv4', from_value: '0', to_value: '0' }]
+    assert_equal ['42', '10', '1', 'ipv4', '0', '0', '0'], columns_for(render(payload), 42)
+  end
+
+  def test_json_receipts_are_exact_legacy_lines_and_rendering_never_mutates_inputs
+    %w[preview validated_before_commit committed].each do |stage|
+      payload = receipt(stage)
+      before = Marshal.dump(payload)
+      assert_equal JSON.generate(payload) + "\n", render(payload, json: true)
+      render(payload)
+      assert_equal before, Marshal.dump(payload)
+      assert_equal Tool::Plan.parse(JSON.generate(@data)).identity, payload[:plan]
+    end
+  end
+
+  def test_large_low_bit_amounts_and_signed_delta_remain_exact
+    payload = receipt
+    payload[:usage_changes] = [
+      { id: 140, config_id: 10, environment_id: 1, resource: 'ipv6', from_value: (S + 1).to_s, to_value: (L + S + 3).to_s },
+      { id: 141, config_id: 11, environment_id: 2, resource: 'ipv6', from_value: (L + S + 3).to_s, to_value: (S + 1).to_s },
+      { id: 142, config_id: 10, environment_id: 1, resource: 'ipv6', from_value: (S + 1).to_s, to_value: (S + 1).to_s }
+    ]
+    text = render(payload)
+    assert_equal [S + 1, L + S + 3, L + 2], columns_for(text, 140)[4, 3].map { |v| Integer(v.delete(','), 10) }
+    assert_equal [L + S + 3, S + 1, -L - 2], columns_for(text, 141)[4, 3].map { |v| Integer(v.delete(','), 10) }
+    assert_equal '0', columns_for(text, 142).last
+  end
+
+  def test_json_flag_keeps_help_and_errors_plain_in_both_launchers
+    %i[direct production_load].each do |mode|
+      out, err, status = launch(mode, '--json', '--help')
+      assert status.success?
+      assert_includes out, 'Usage:'
+      assert_includes out, '--json'
+      assert_empty err
+      [[], ['--plan', '/dev/stdin']].each do |args|
+        out, err, status = launch(mode, '--json', *args, input: '{')
+        assert_equal 1, status.exitstatus
+        assert_empty out
+        assert err.start_with?('refused: ')
+        refute err.start_with?('{')
+      end
+    end
+  end
+
   def launch(mode, *args, input: '')
     executable = File.expand_path('reconcile_owned_ip_charges.rb', __dir__)
     command = [RbConfig.ruby]

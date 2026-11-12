@@ -230,6 +230,73 @@ module ReconcileOwnedIpCharges
     end
   end
 
+  # Render only existing receipt fields; amounts and input arrays stay unchanged.
+  class Printer
+    STAGES = {
+      'preview' => 'Preview: no database changes were made.',
+      'validated_before_commit' => 'Validated before commit: the transaction has not committed yet.',
+      'committed' => 'Committed: database changes saved.'
+    }.freeze
+
+    def initialize(output, json: false)
+      @output = output
+      @json = json
+    end
+
+    def emit(receipt)
+      if @json
+        @output.puts JSON.generate(receipt)
+        return
+      end
+
+      ips = receipt.fetch(:ips)
+      uses = receipt.fetch(:usage_changes)
+      @output.puts STAGES.fetch(receipt.fetch(:status))
+      @output.puts "Plan: #{receipt.fetch(:plan)}"
+      @output.puts "IP environment changes: #{ips.length}; resource usage changes: #{uses.length}"
+      @output.puts 'Amounts are exact address units; delta = after - before.'
+      @output.puts
+      @output.puts 'IP charge environments'
+      if ips.empty?
+        @output.puts 'No IP environment changes.'
+      else
+        table(['IP ID', 'Owner config ID', 'Network ID', 'Prefix', 'Size', 'Before env', 'After env'], ips.map do |ip|
+          [ip.fetch(:id).to_s, ip.fetch(:owner_config_id).to_s, ip.fetch(:network_id).to_s,
+           "/#{ip.fetch(:prefix)}", amount(ip.fetch(:size)),
+           ip.fetch(:from_environment_id)&.to_s || 'not recorded', ip.fetch(:to_environment_id).to_s]
+        end)
+      end
+      @output.puts
+      @output.puts 'Resource usage'
+      if uses.empty?
+        @output.puts 'No resource usage changes.'
+      else
+        table(['Use ID', 'Config ID', 'Env ID', 'Resource', 'Before', 'After', 'Delta'], uses.map do |use|
+          delta = Integer(use.fetch(:to_value), 10) - Integer(use.fetch(:from_value), 10)
+          sign = delta.positive? ? '+' : delta.negative? ? '-' : ''
+          [use.fetch(:id).to_s, use.fetch(:config_id).to_s, use.fetch(:environment_id).to_s,
+           use.fetch(:resource), amount(use.fetch(:from_value)), amount(use.fetch(:to_value)),
+           sign + amount(delta.abs.to_s)]
+        end, text_columns: [3])
+      end
+    end
+
+    private
+
+    def amount(value)
+      value.to_s.reverse.scan(/.{1,3}/).join(',').reverse
+    end
+
+    def table(headers, rows, text_columns: [])
+      widths = headers.each_index.map { |i| ([headers[i]] + rows.map { |row| row[i] }).map(&:length).max }
+      ([headers] + rows).each do |row|
+        @output.puts row.each_with_index.map { |cell, i|
+          text_columns.include?(i) ? cell.ljust(widths[i]) : cell.rjust(widths[i])
+        }.join('  ')
+      end
+    end
+  end
+
   class Database
     MODELS = { configs: 'EnvironmentUserConfig', environments: 'Environment', ips: 'IpAddress',
                networks: 'Network', links: 'LocationNetwork', locations: 'Location', interfaces: 'NetworkInterface',
@@ -321,7 +388,7 @@ module ReconcileOwnedIpCharges
       end
     end
 
-    def apply(admin_id, output: $stdout)
+    def apply(admin_id, output: $stdout, json: false)
       previous_user = User.current
       previous_audit = PaperTrail.request.whodunnit
       admin = User.unscoped.find_by(id: admin_id)
@@ -337,7 +404,7 @@ module ReconcileOwnedIpCharges
           selection.fetch(name).sort.map { |id| Object.const_get(name).find(id).acquire_lock }
         end
         before = fingerprint(rows)
-        output.puts JSON.generate(status: 'validated_before_commit', plan: @plan.identity,
+        Printer.new(output, json:).emit(status: 'validated_before_commit', plan: @plan.identity,
                                   ips: @plan.ips, usage_changes: @plan.usage_changes)
         output.flush
         @plan.ips.each do |input|
@@ -350,7 +417,7 @@ module ReconcileOwnedIpCharges
         verify_post!(before, snapshot(lock: true))
         reservations.reverse_each(&:destroy!)
       end
-      output.puts JSON.generate(status: 'committed', plan: @plan.identity,
+      Printer.new(output, json:).emit(status: 'committed', plan: @plan.identity,
                                 ips: @plan.ips, usage_changes: @plan.usage_changes)
       output.flush
     ensure
@@ -380,8 +447,9 @@ module ReconcileOwnedIpCharges
   def self.run(argv, output: $stdout, error: $stderr)
     options = {}
     parser = OptionParser.new do |opts|
-      opts.banner = 'Usage: reconcile_owned_ip_charges.rb --plan PATH [--apply --writers-quiesced --admin-id ID]'
+      opts.banner = 'Usage: reconcile_owned_ip_charges.rb --plan PATH [--json] [--apply --writers-quiesced --admin-id ID]'
       opts.on('--plan PATH', 'Explicit JSON plan; preview is read-only') { |v| options[:path] = v }
+      opts.on('--json', 'Write JSON success receipts instead of tables') { options[:json] = true }
       opts.on('--apply', 'Apply the exact plan atomically during maintenance') { options[:apply] = true }
       opts.on('--writers-quiesced', 'Attest all writers stopped and older work drained') { options[:quiesced] = true }
       opts.on('--admin-id ID', Integer, 'Administrator audit identity') { |v| options[:admin] = v }
@@ -398,10 +466,10 @@ module ReconcileOwnedIpCharges
     require 'vpsadmin'
     database = Database.new(plan)
     if options[:apply]
-      database.apply(options[:admin], output:)
+      database.apply(options[:admin], output:, json: options[:json])
     else
       comparison = Comparison.new(plan, database.snapshot)
-      output.puts JSON.generate(status: 'preview', plan: plan.identity, ips: plan.ips,
+      Printer.new(output, json: options[:json]).emit(status: 'preview', plan: plan.identity, ips: plan.ips,
                                 usage_changes: comparison.changes)
     end
     0
