@@ -6,6 +6,17 @@ It uses the installed `vpsadmin-api-ruby` and current vpsAdmin models. It requir
 coordinated IP reservations, `charged_environment_id` and the existing transaction
 confirmation schema. It changes no API contract or database schema.
 
+Install `reconcile_owned_ip_charges.rb` and its sibling
+`reconcile_owned_ip_charges_lib.rb` together. The executable dispatches the CLI
+when run directly or loaded by `vpsadmin-api-ruby`; the library defines helpers
+without starting the CLI or loading the application.
+
+`vpsadmin-api-ruby` changes the working directory to the packaged API directory.
+Pass absolute paths for operator files, including `--plan`. For a file in your
+current directory, resolve it before invoking the runner, for example
+`--plan "$(pwd)/plan.json"`. Task code uses `require_relative` to find its library.
+Do not copy only the executable when updating an installation.
+
 Choose the intended charge environments and exact final usage values before
 applying a plan. Current network locations do not establish historical charge
 provenance. A forward reconciliation is an explicit accounting decision.
@@ -95,11 +106,20 @@ assignment, restoring old values can corrupt accounting.
 
 ## Verification
 
+Parser-only callers must require `reconcile_owned_ip_charges_lib.rb` rather than
+the executable. Requiring the library preserves arguments and starts no CLI or
+database work.
+
 Pure synthetic checks load no application or database:
 
 ```sh
 ruby reconcile_owned_ip_charges_test.rb
 ```
+
+The synthetic suite also launches the real executable directly and through the
+production runner's `script = ARGV[0]; ARGV.shift; load script` contract, from a
+different working directory. It checks help, missing arguments and malformed JSON,
+and separately checks a fresh library require.
 
 The optional actual-model cases require the vpsAdmin API development shell and
 its isolated MariaDB test runner. They cover preview immutability, successful

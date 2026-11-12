@@ -3,7 +3,9 @@
 require 'minitest/test'
 require 'ostruct'
 require 'stringio'
-require_relative 'reconcile_owned_ip_charges'
+require 'open3'
+require 'rbconfig'
+require_relative 'reconcile_owned_ip_charges_lib'
 
 class ReconcilePlanTest < Minitest::Test
   Tool = ReconcileOwnedIpCharges
@@ -155,6 +157,51 @@ class ReconcilePlanTest < Minitest::Test
     assert_equal 0, Tool.run(['--help'], output: StringIO.new)
     assert_equal 1, Tool.run(['--plan', '/nonexistent', '--apply'], error: StringIO.new)
   end
+  def launch(mode, *args, input: '')
+    executable = File.expand_path('reconcile_owned_ip_charges.rb', __dir__)
+    command = [RbConfig.ruby]
+    command += ['-e', 'script = ARGV[0]; ARGV.shift; load script', '--'] if mode == :production_load
+    Open3.capture3(*command, executable, *args, stdin_data: input, chdir: File.dirname(__dir__))
+  end
+
+  def test_real_executable_help_direct_and_production_loader
+    %i[direct production_load].each do |mode|
+      out, err, status = launch(mode, '--help')
+      assert status.success?, mode.to_s
+      assert_includes out, 'Usage: reconcile_owned_ip_charges.rb --plan PATH'
+      assert_empty err
+    end
+  end
+
+  def test_real_executable_refuses_missing_arguments_and_malformed_plan
+    %i[direct production_load].each do |mode|
+      [[], ['--plan', '/dev/stdin']].each do |args|
+        out, err, status = launch(mode, *args, input: '{')
+        assert_equal 1, status.exitstatus, "#{mode} #{args}"
+        assert_empty out
+        assert_includes err, args.empty? ? 'refused: plan required' : 'refused: invalid JSON'
+      end
+    end
+  end
+
+  def test_library_require_in_fresh_child_is_pure_and_preserves_arguments
+    library = File.expand_path('reconcile_owned_ip_charges_lib.rb', __dir__)
+    code = <<~'CHILD'
+      path = ARGV.shift
+      before = ARGV.dup
+      require path
+      raise 'arguments changed' unless ARGV == before
+      raise 'helpers missing' unless defined?(ReconcileOwnedIpCharges::Plan)
+      raise 'application loaded' if defined?(ActiveRecord) || defined?(VpsAdmin)
+      puts 'pure library loaded'
+    CHILD
+    out, err, status = Open3.capture3(RbConfig.ruby, '-e', code, '--', library,
+                                    'sentinel', '--untouched', chdir: File.dirname(__dir__))
+    assert status.success?
+    assert_equal "pure library loaded\n", out
+    assert_empty err
+  end
+
 end
 
 # Opt in only inside the API's isolated test shell/database, after final review.
